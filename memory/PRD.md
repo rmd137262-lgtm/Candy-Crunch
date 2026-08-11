@@ -1,39 +1,39 @@
-# Color Tap Challenge — Product Requirements
+# Color Crush — Level 1 Product Requirements
 
 ## Problem statement
-Build the first working version of an Android-ready offline color reaction game. Players read a color instruction, tap the matching colored target, build score, survive with three lives, and progress through increasingly difficult levels. Best score and sound/vibration preferences are stored locally.
+Create only Level 1 of an original offline Match-3 puzzle game. Players swap adjacent pieces on a 7×7 board, match three or more identical pieces, clear matched pieces, refill from above, and reach 500 points within 20 moves.
 
 ## Architecture
 - Expo SDK 54 React Native app with Expo Router.
-- Single offline game screen state machine: Home → Game → Game Over, with Settings and Level Transition modals.
-- AsyncStorage for best score and settings; Expo Haptics for optional vibration.
-- No backend, network calls, AI APIs, payments, ads, or external game assets.
+- Offline single-screen state machine: Home → Level 1 Game → Level Complete or Game Over → Retry.
+- Pure TypeScript board algorithms for match detection, clearing, gravity, refill, and cascaded scoring.
+- No backend, network calls, AI APIs, payments, ads, subscriptions, or external game assets.
 
 ## User personas
-- Quick-session mobile players who want a fast reaction challenge.
-- Casual players competing against their personal best.
+- Casual mobile puzzle players seeking a short, focused challenge.
+- Match-3 players who enjoy planning a limited number of moves.
 
 ## Core requirements (static)
-- Playable color matching with large touch targets.
-- Score, three lives, level, round progress, and response timer.
-- Fixed five correct rounds per level, faster timer and more color choices over time.
-- Level transition feedback, Game Over summary, saved Best Score, and Play Again.
-- Home title, Play button, Best Score, Settings button.
-- Sound and vibration settings stored locally.
+- Exactly one 7×7 Level 1 board and six original colorful piece types.
+- Adjacent tap-to-select and tap-to-swap interaction.
+- Match 3+ horizontally or vertically, clear pieces, apply gravity, and refill.
+- Score, 20 moves, Level 1 label, and 500-point target visible during play.
+- Level Complete at target, Game Over at zero moves, and functional Retry.
+- Mobile-friendly controls, clear instructions, and polished visual treatment.
 
 ## Implemented (2026-08-11)
-- Built polished dark neon home screen with original colorful visual system.
-- Built live reaction gameplay with correct/wrong tap handling, timeout life loss, score, lives, timer, and levels.
-- Added level transition modal and scalable difficulty through six colors and an accelerating timer.
-- Added Game Over and Play Again flows with local Best Score persistence.
-- Added mobile-safe Settings bottom sheet with Sound and Vibration toggles and persistence.
-- Verified TypeScript, ESLint, and Expo preview gameplay flow including Level 2, Game Over, and Play Again.
+- Replaced the prior reaction game with Color Crush Level 1.
+- Added procedural no-initial-match 7×7 board generation using six original pieces.
+- Added adjacent swap selection, valid-match validation, horizontal/vertical match detection, clearing, gravity, refill, cascades, and score bonuses.
+- Added 20-move accounting for valid and invalid adjacent swaps.
+- Added 500-point progress bar, Level Complete screen, Game Over screen, and Retry reset.
+- Verified TypeScript, ESLint, Expo preview, 49-cell board, valid scoring swap, 20-move exhaustion, completion at 505 points, and Retry.
 
 ## Prioritized backlog
-- P0: None for first working version.
-- P1: Add optional lightweight sound effects when an approved audio asset strategy is selected.
-- P2: Add personal run history or accessibility color-blind patterns after core gameplay feedback.
+- P0: None for the requested Level 1 MVP.
+- P1: Add subtle clear/fall animations and optional sound effects.
+- P2: Add accessibility-friendly piece patterns after player feedback.
 
 ## Next tasks
-- Gather player feedback on timer pacing and level curve.
-- Tune color contrast and add a color-blind-friendly mode if needed.
+- Tune scoring and cascade bonuses after real-player feedback.
+- Add motion polish without changing the current stable board rules.

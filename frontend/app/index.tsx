@@ -1,159 +1,145 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
-type Screen = "home" | "game" | "over";
-type Settings = { sound: boolean; vibration: boolean };
-type ColorChoice = { name: string; hex: string; glow: string };
+type Screen = "home" | "game" | "complete" | "over";
+type Piece = { id: number; type: number };
 
-const BEST_KEY = "color-tap-best-score";
-const SETTINGS_KEY = "color-tap-settings";
-const COLORS: ColorChoice[] = [
-  { name: "RED", hex: "#F0445E", glow: "#FF7183" },
-  { name: "BLUE", hex: "#3B82F6", glow: "#67A5FF" },
-  { name: "GREEN", hex: "#16C79A", glow: "#5CE8C4" },
-  { name: "YELLOW", hex: "#F6B83F", glow: "#FFD875" },
-  { name: "PURPLE", hex: "#8B5CF6", glow: "#B599FF" },
-  { name: "PINK", hex: "#EC4899", glow: "#F979B9" },
+const SIZE = 7;
+const TARGET = 500;
+const STARTING_MOVES = 20;
+const PIECES = [
+  { name: "Coral", color: "#F04E68", light: "#FF8A9B", icon: "◆" },
+  { name: "Azure", color: "#3B82F6", light: "#84B8FF", icon: "●" },
+  { name: "Mint", color: "#12B88A", light: "#76E7C6", icon: "✦" },
+  { name: "Sun", color: "#F4B63E", light: "#FFE08A", icon: "★" },
+  { name: "Violet", color: "#8B5CF6", light: "#C4AEFF", icon: "●" },
+  { name: "Pink", color: "#EC4899", light: "#FF9DCC", icon: "◆" },
 ];
+
+const indexOf = (row: number, col: number) => row * SIZE + col;
+const areNeighbors = (a: number, b: number) => {
+  const ar = Math.floor(a / SIZE); const ac = a % SIZE;
+  const br = Math.floor(b / SIZE); const bc = b % SIZE;
+  return Math.abs(ar - br) + Math.abs(ac - bc) === 1;
+};
+
+function findMatches(board: (Piece | null)[]) {
+  const matches = new Set<number>();
+  for (let row = 0; row < SIZE; row += 1) {
+    let start = 0;
+    while (start < SIZE) {
+      const first = board[indexOf(row, start)];
+      let end = start + 1;
+      while (end < SIZE && first && board[indexOf(row, end)]?.type === first.type) end += 1;
+      if (first && end - start >= 3) for (let col = start; col < end; col += 1) matches.add(indexOf(row, col));
+      start = end;
+    }
+  }
+  for (let col = 0; col < SIZE; col += 1) {
+    let start = 0;
+    while (start < SIZE) {
+      const first = board[indexOf(start, col)];
+      let end = start + 1;
+      while (end < SIZE && first && board[indexOf(end, col)]?.type === first.type) end += 1;
+      if (first && end - start >= 3) for (let row = start; row < end; row += 1) matches.add(indexOf(row, col));
+      start = end;
+    }
+  }
+  return matches;
+}
+
+function createBoard(): Piece[] {
+  let nextId = 1;
+  const board: Piece[] = [];
+  for (let row = 0; row < SIZE; row += 1) {
+    for (let col = 0; col < SIZE; col += 1) {
+      const choices = PIECES.map((_, type) => type).filter((type) => {
+        const left = col >= 2 ? board[indexOf(row, col - 1)]?.type === type && board[indexOf(row, col - 2)]?.type === type : false;
+        const up = row >= 2 ? board[indexOf(row - 1, col)]?.type === type && board[indexOf(row - 2, col)]?.type === type : false;
+        return !left && !up;
+      });
+      const type = choices[Math.floor(Math.random() * choices.length)];
+      board.push({ id: nextId, type }); nextId += 1;
+    }
+  }
+  return board;
+}
+
+function resolveBoard(input: Piece[]) {
+  let board: (Piece | null)[] = [...input];
+  let gained = 0; let cascade = 0;
+  while (true) {
+    const matches = findMatches(board);
+    if (matches.size === 0) break;
+    cascade += 1;
+    gained += matches.size * 20 + (cascade - 1) * 25;
+    matches.forEach((index) => { board[index] = null; });
+    for (let col = 0; col < SIZE; col += 1) {
+      const filled: Piece[] = [];
+      for (let row = SIZE - 1; row >= 0; row -= 1) {
+        const piece = board[indexOf(row, col)]; if (piece) filled.push(piece);
+      }
+      for (let row = SIZE - 1; row >= 0; row -= 1) board[indexOf(row, col)] = filled[SIZE - 1 - row] ?? { id: Math.random(), type: Math.floor(Math.random() * PIECES.length) };
+    }
+  }
+  return { board: board as Piece[], gained };
+}
 
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("home");
-  const [best, setBest] = useState(0);
-  const [settings, setSettings] = useState<Settings>({ sound: true, vibration: true });
+  const [board, setBoard] = useState<Piece[]>(() => createBoard());
+  const [selected, setSelected] = useState<number | null>(null);
   const [score, setScore] = useState(0);
-  const [lives, setLives] = useState(3);
-  const [level, setLevel] = useState(1);
-  const [round, setRound] = useState(0);
-  const [target, setTarget] = useState<ColorChoice>(COLORS[0]);
-  const [choices, setChoices] = useState<ColorChoice[]>(COLORS.slice(0, 4));
-  const [timeLeft, setTimeLeft] = useState(100);
-  const [levelUp, setLevelUp] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [moves, setMoves] = useState(STARTING_MOVES);
+  const [lastGain, setLastGain] = useState(0);
 
-  useEffect(() => {
-    (async () => {
-      const savedBest = await AsyncStorage.getItem(BEST_KEY);
-      const savedSettings = await AsyncStorage.getItem(SETTINGS_KEY);
-      if (savedBest) setBest(Number(savedBest));
-      if (savedSettings) setSettings(JSON.parse(savedSettings));
-    })();
-  }, []);
+  const startGame = () => { setBoard(createBoard()); setScore(0); setMoves(STARTING_MOVES); setSelected(null); setLastGain(0); setScreen("game"); };
 
-  const roundsPerLevel = 5;
-  const makeRound = useCallback((currentLevel: number) => {
-    const count = Math.min(4 + Math.floor((currentLevel - 1) / 2), COLORS.length);
-    const shuffled = [...COLORS].sort(() => Math.random() - 0.5).slice(0, count);
-    const nextTarget = shuffled[Math.floor(Math.random() * shuffled.length)];
-    setChoices(shuffled);
-    setTarget(nextTarget);
-    setTimeLeft(100);
-  }, []);
-
-  const endGame = useCallback((finalScore: number) => {
-    if (timer.current) clearInterval(timer.current);
-    if (finalScore > best) {
-      setBest(finalScore);
-      AsyncStorage.setItem(BEST_KEY, String(finalScore));
-    }
-    setScore(finalScore);
-    setScreen("over");
-  }, [best]);
-
-  const loseLife = useCallback(() => {
-    setLives((current) => {
-      const next = current - 1;
-      if (next <= 0) endGame(score);
-      return next;
-    });
-  }, [endGame, score]);
-
-  useEffect(() => {
-    if (screen !== "game" || levelUp) return;
-    const duration = Math.max(820, 2600 - level * 180);
-    const step = 100 / (duration / 100);
-    timer.current = setInterval(() => {
-      setTimeLeft((current) => {
-        if (current - step <= 0) {
-          loseLife();
-          makeRound(level);
-          return 100;
-        }
-        return current - step;
-      });
-    }, 100);
-    return () => { if (timer.current) clearInterval(timer.current); };
-  }, [screen, level, levelUp, loseLife, makeRound]);
-
-  const startGame = () => {
-    if (timer.current) clearInterval(timer.current);
-    setScore(0); setLives(3); setLevel(1); setRound(0); setLevelUp(false);
-    makeRound(1); setScreen("game");
-  };
-
-  const tapChoice = (choice: ColorChoice) => {
-    if (choice.name !== target.name) {
-      if (settings.vibration) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      loseLife();
-      makeRound(level);
+  const handleCell = (index: number) => {
+    if (screen !== "game") return;
+    if (selected === null) { setSelected(index); return; }
+    if (selected === index) { setSelected(null); return; }
+    if (!areNeighbors(selected, index)) { setSelected(index); return; }
+    const swapped = [...board]; [swapped[selected], swapped[index]] = [swapped[index], swapped[selected]];
+    const matches = findMatches(swapped);
+    if (matches.size === 0) {
+      const nextMoves = moves - 1;
+      setMoves(nextMoves); setSelected(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      if (nextMoves <= 0) setScreen("over");
       return;
     }
-    if (settings.vibration) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const nextScore = score + 1;
-    const nextRound = round + 1;
-    setScore(nextScore);
-    if (nextRound >= roundsPerLevel) {
-      const nextLevel = level + 1;
-      setRound(0); setLevel(nextLevel); setLevelUp(true);
-      if (timer.current) clearInterval(timer.current);
-      setTimeout(() => { setLevelUp(false); makeRound(nextLevel); }, 1100);
-    } else {
-      setRound(nextRound); makeRound(level);
-    }
+    const result = resolveBoard(swapped);
+    const nextScore = score + result.gained; const nextMoves = moves - 1;
+    setBoard(result.board); setScore(nextScore); setMoves(nextMoves); setSelected(null); setLastGain(result.gained);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (nextScore >= TARGET) setScreen("complete"); else if (nextMoves <= 0) setScreen("over");
   };
 
-  const saveSetting = (key: keyof Settings) => {
-    const next = { ...settings, [key]: !settings[key] };
-    setSettings(next); AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-  };
-
-  if (screen === "home") return <Home best={best} onPlay={startGame} onSettings={() => setShowSettings(true)} showSettings={showSettings} settings={settings} onToggle={saveSetting} onClose={() => setShowSettings(false)} />;
-  if (screen === "over") return <GameOver score={score} best={best} onPlay={startGame} />;
-  return (
-    <SafeAreaView style={styles.safe}>
-      <LinearGradient colors={["#17152B", "#0F1117"]} style={styles.container}>
-        <View style={styles.gameHeader}>
-          <View><Text style={styles.statLabel}>SCORE</Text><Text style={styles.statValue}>{score}</Text></View>
-          <View style={styles.levelPill}><Text style={styles.levelText}>LEVEL {level}</Text></View>
-          <View style={styles.lifeBox}><Text style={styles.statLabel}>LIVES</Text><Text style={styles.lives}>{"♥".repeat(lives)}<Text style={styles.emptyLives}>{"♥".repeat(3 - lives)}</Text></Text></View>
-        </View>
-        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${timeLeft}%` }]} /></View>
-        <View style={styles.instruction}><Text style={styles.overline}>FIND THE COLOR</Text><Text style={[styles.target, { color: target.glow }]}>TAP {target.name}</Text><Text style={styles.roundText}>{round}/{roundsPerLevel} TO LEVEL UP</Text></View>
-        <View style={styles.grid}>{choices.map((choice) => <Pressable key={choice.name} testID={`color-${choice.name.toLowerCase()}`} onPress={() => tapChoice(choice)} style={({ pressed }) => [styles.colorButton, { backgroundColor: choice.hex, shadowColor: choice.glow, transform: [{ scale: pressed ? 0.94 : 1 }] }]}><View style={styles.buttonShine} /></Pressable>)}</View>
-        <Text style={styles.tip}>QUICK! THE CLOCK IS TICKING</Text>
-        <Modal visible={levelUp} transparent animationType="fade"><View style={styles.modalBackdrop}><View style={styles.transitionCard}><Text style={styles.transitionOverline}>NICE WORK</Text><Text style={styles.transitionTitle}>LEVEL {level}</Text><Text style={styles.transitionBody}>Get ready. It’s getting faster.</Text></View></View></Modal>
-      </LinearGradient>
-    </SafeAreaView>
-  );
+  if (screen === "home") return <Home onPlay={startGame} />;
+  if (screen === "complete") return <Result title="LEVEL COMPLETE" eyebrow="YOU DID IT" score={score} message="Level 1 target reached." button="PLAY AGAIN" onPress={startGame} success />;
+  if (screen === "over") return <Result title="GAME OVER" eyebrow="OUT OF MOVES" score={score} message="Try a new strategy and beat 500." button="RETRY" onPress={startGame} />;
+  return <Game board={board} selected={selected} score={score} moves={moves} lastGain={lastGain} onCell={handleCell} />;
 }
 
-function Home({ best, onPlay, onSettings, showSettings, settings, onToggle, onClose }: { best: number; onPlay: () => void; onSettings: () => void; showSettings: boolean; settings: Settings; onToggle: (key: keyof Settings) => void; onClose: () => void }) {
-  return <SafeAreaView style={styles.safe}><LinearGradient colors={["#211844", "#0F1117"]} style={styles.container}><View style={styles.homeTop}><View style={styles.logoMark}><View style={[styles.logoDot, { backgroundColor: COLORS[0].hex }]} /><View style={[styles.logoDot, { backgroundColor: COLORS[3].hex }]} /><View style={[styles.logoDot, { backgroundColor: COLORS[2].hex }]} /><View style={[styles.logoDot, { backgroundColor: COLORS[1].hex }]} /></View><Pressable testID="settings-button" onPress={onSettings} style={styles.iconButton}><Ionicons name="settings-outline" size={24} color="#F8FAFC" /></Pressable></View><View style={styles.hero}><Text style={styles.kicker}>REACTION GAME</Text><Text style={styles.title}>COLOR{`\n`}TAP<Text style={styles.titleAccent}>.</Text></Text><Text style={styles.subtitle}>Trust your eyes.{`\n`}Beat your best.</Text></View><View style={styles.homeBottom}><View style={styles.bestCard}><Ionicons name="trophy" size={22} color="#F6B83F" /><View><Text style={styles.statLabel}>BEST SCORE</Text><Text style={styles.bestValue}>{best}</Text></View></View><Pressable testID="play-button" onPress={onPlay} style={({ pressed }) => [styles.playButton, pressed && { transform: [{ scale: 0.97 }] }]}><Text style={styles.playText}>PLAY</Text><Ionicons name="arrow-forward" size={24} color="#0F1117" /></Pressable></View><SettingsModal visible={showSettings} settings={settings} onToggle={onToggle} onClose={onClose} /></LinearGradient></SafeAreaView>;
+function Home({ onPlay }: { onPlay: () => void }) {
+  return <SafeAreaView style={styles.safe}><LinearGradient colors={["#211844", "#0F1117"]} style={styles.container}><View style={styles.logoRow}><View style={styles.logoMark}>{PIECES.slice(0, 4).map((piece) => <View key={piece.name} style={[styles.logoDot, { backgroundColor: piece.color }]} />)}</View><View style={styles.levelBadge}><Text style={styles.levelBadgeText}>LEVEL 01</Text></View></View><View style={styles.hero}><Text style={styles.kicker}>MATCH • CLEAR • SCORE</Text><Text style={styles.title}>COLOR<Text style={styles.titleAccent}>.</Text>{`\n`}CRUSH</Text><Text style={styles.subtitle}>Find the matches.{`\n`}Make every move count.</Text><View style={styles.miniBoard}>{[0, 1, 2, 3, 4, 5, 0, 2, 4].map((type, i) => <View key={i} style={[styles.miniPiece, { backgroundColor: PIECES[type].color }]} />)}</View></View><View><View style={styles.goalCard}><Ionicons name="flag" size={22} color="#F4B63E" /><View><Text style={styles.statLabel}>LEVEL 1 GOAL</Text><Text style={styles.goalValue}>500 POINTS</Text></View></View><Pressable testID="play-button" onPress={onPlay} style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}><Text style={styles.playText}>PLAY LEVEL 1</Text><Ionicons name="arrow-forward" size={23} color="#11101A" /></Pressable></View></LinearGradient></SafeAreaView>;
 }
 
-function GameOver({ score, best, onPlay }: { score: number; best: number; onPlay: () => void }) { return <SafeAreaView style={styles.safe}><LinearGradient colors={["#281832", "#0F1117"]} style={[styles.container, styles.center]}><Text style={styles.kicker}>RUN COMPLETE</Text><Text style={styles.gameOverTitle}>GAME OVER</Text><View style={styles.scoreCard}><Text style={styles.statLabel}>FINAL SCORE</Text><Text style={styles.finalScore}>{score}</Text><View style={styles.divider} /><View style={styles.bestRow}><Text style={styles.statLabel}>BEST SCORE</Text><Text style={styles.bestScoreSmall}>{best}</Text></View></View><Pressable testID="play-again-button" onPress={onPlay} style={styles.playButton}><Text style={styles.playText}>PLAY AGAIN</Text><Ionicons name="refresh" size={23} color="#0F1117" /></Pressable></LinearGradient></SafeAreaView>; }
+function Game({ board, selected, score, moves, lastGain, onCell }: { board: Piece[]; selected: number | null; score: number; moves: number; lastGain: number; onCell: (index: number) => void }) {
+  return <SafeAreaView style={styles.safe}><LinearGradient colors={["#17152B", "#0F1117"]} style={styles.container}><View style={styles.gameTop}><View><Text style={styles.statLabel}>SCORE</Text><Text testID="score-value" style={styles.statValue}>{score}</Text></View><View style={styles.levelPill}><Text style={styles.levelText}>LEVEL 1</Text></View><View style={styles.movesBox}><Text style={styles.statLabel}>MOVES</Text><Text testID="moves-value" style={styles.movesValue}>{moves}</Text></View></View><View style={styles.goalLine}><Text style={styles.goalText}>TARGET <Text style={styles.goalStrong}>{TARGET}</Text></Text><View style={styles.goalTrack}><View style={[styles.goalFill, { width: `${Math.min(100, (score / TARGET) * 100)}%` }]} /></View></View><View style={styles.boardShell}><View style={styles.board}>{board.map((piece, index) => <Pressable key={piece.id} testID={`cell-${index}`} onPress={() => onCell(index)} style={({ pressed }) => [styles.cell, { backgroundColor: PIECES[piece.type].color, shadowColor: PIECES[piece.type].light }, selected === index && styles.cellSelected, pressed && styles.cellPressed]}><Text style={[styles.pieceSymbol, { color: PIECES[piece.type].light }]}>{PIECES[piece.type].icon}</Text></Pressable>)}</View></View><View style={styles.helper}><View style={styles.helperIcon}><Ionicons name="swap-horizontal" size={19} color="#A99BFF" /></View><Text style={styles.helperText}>TAP TWO ADJACENT PIECES TO SWAP</Text></View>{lastGain > 0 && <Text style={styles.gain}>+{lastGain} POINTS</Text>}</LinearGradient></SafeAreaView>;
+}
 
-function SettingsModal({ visible, settings, onToggle, onClose }: { visible: boolean; settings: Settings; onToggle: (key: keyof Settings) => void; onClose: () => void }) { return <Modal visible={visible} transparent animationType="slide"><View style={styles.modalBackdrop}><View style={styles.settingsCard}><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.settingsScroll}><View style={styles.modalHeader}><Text style={styles.modalTitle}>SETTINGS</Text><Pressable testID="close-settings" onPress={onClose} style={styles.close}><Ionicons name="close" size={24} color="#F8FAFC" /></Pressable></View>{([ ["sound", "Sound", "volume-high"], ["vibration", "Vibration", "phone-portrait"] ] as const).map(([key, label, icon]) => <Pressable key={key} testID={`${key}-toggle`} onPress={() => onToggle(key)} style={styles.settingRow}><View style={styles.settingName}><Ionicons name={icon} size={22} color="#A99BFF" /><Text style={styles.settingText}>{label}</Text></View><View style={[styles.toggle, settings[key] && styles.toggleOn]}><View style={[styles.toggleKnob, settings[key] && styles.toggleKnobOn]} /></View></Pressable>)}<Text style={styles.settingsFoot}>Your preferences are saved automatically.</Text></ScrollView></View></View></Modal>; }
+function Result({ title, eyebrow, score, message, button, onPress, success = false }: { title: string; eyebrow: string; score: number; message: string; button: string; onPress: () => void; success?: boolean }) {
+  return <SafeAreaView style={styles.safe}><LinearGradient colors={[success ? "#1E2941" : "#281832", "#0F1117"]} style={[styles.container, styles.center]}><View style={[styles.resultIcon, success && styles.successIcon]}><Ionicons name={success ? "trophy" : "refresh"} size={34} color={success ? "#F4B63E" : "#FF8A9B"} /></View><Text style={styles.kicker}>{eyebrow}</Text><Text style={styles.resultTitle}>{title}</Text><View style={styles.resultCard}><Text style={styles.statLabel}>FINAL SCORE</Text><Text style={styles.finalScore}>{score}</Text><Text style={styles.resultMessage}>{message}</Text></View><Pressable testID={button === "RETRY" ? "retry-button" : "play-again-button"} onPress={onPress} style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}><Text style={styles.playText}>{button}</Text><Ionicons name={button === "RETRY" ? "refresh" : "arrow-forward"} size={23} color="#11101A" /></Pressable></LinearGradient></SafeAreaView>;
+}
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0F1117" }, container: { flex: 1, paddingHorizontal: 24, paddingTop: 22, paddingBottom: 28 }, center: { alignItems: "center", justifyContent: "center" },
-  homeTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, logoMark: { flexDirection: "row", flexWrap: "wrap", width: 40, gap: 4 }, logoDot: { width: 17, height: 17, borderRadius: 6 }, iconButton: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#FFFFFF12", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#FFFFFF14" },
-  hero: { flex: 1, justifyContent: "center", paddingBottom: 50 }, kicker: { color: "#A99BFF", fontWeight: "800", fontSize: 13, letterSpacing: 2.2, marginBottom: 15 }, title: { color: "#F8FAFC", fontSize: 58, lineHeight: 54, fontWeight: "900", letterSpacing: -2 }, titleAccent: { color: "#F0445E" }, subtitle: { color: "#94A3B8", fontSize: 18, lineHeight: 27, fontWeight: "500", marginTop: 24 }, homeBottom: { gap: 16 }, bestCard: { flexDirection: "row", alignItems: "center", gap: 13, padding: 18, backgroundColor: "#FFFFFF0D", borderRadius: 20, borderWidth: 1, borderColor: "#FFFFFF12" }, statLabel: { color: "#94A3B8", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }, bestValue: { color: "#F8FAFC", fontSize: 24, fontWeight: "900", marginTop: 2 }, playButton: { minHeight: 62, borderRadius: 20, backgroundColor: "#A99BFF", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 12, shadowColor: "#8B5CF6", shadowOpacity: 0.4, shadowRadius: 16, elevation: 8 }, playText: { color: "#0F1117", fontSize: 17, fontWeight: "900", letterSpacing: 1.5 },
-  gameHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, statValue: { color: "#F8FAFC", fontSize: 25, fontWeight: "900", marginTop: 2 }, levelPill: { backgroundColor: "#A99BFF22", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 14, borderWidth: 1, borderColor: "#A99BFF55" }, levelText: { color: "#C9C1FF", fontSize: 12, fontWeight: "900", letterSpacing: 1 }, lifeBox: { alignItems: "flex-end" }, lives: { color: "#F0445E", fontSize: 19, letterSpacing: 3, marginTop: 3 }, emptyLives: { color: "#FFFFFF22" }, progressTrack: { height: 6, borderRadius: 4, backgroundColor: "#FFFFFF12", marginTop: 25, overflow: "hidden" }, progressFill: { height: "100%", backgroundColor: "#A99BFF", borderRadius: 4 }, instruction: { alignItems: "center", marginTop: 55, marginBottom: 38 }, overline: { color: "#94A3B8", fontWeight: "800", fontSize: 12, letterSpacing: 2 }, target: { fontSize: 38, fontWeight: "900", letterSpacing: 1, marginTop: 10 }, roundText: { color: "#64748B", fontSize: 12, fontWeight: "800", letterSpacing: 1.2, marginTop: 9 }, grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 18, maxWidth: 360, alignSelf: "center" }, colorButton: { width: 145, height: 145, borderRadius: 44, shadowOpacity: 0.5, shadowRadius: 14, elevation: 10, alignItems: "center", justifyContent: "center" }, buttonShine: { width: 62, height: 16, borderRadius: 10, backgroundColor: "#FFFFFF30", transform: [{ rotate: "-35deg" }], marginTop: -55, marginLeft: -50 }, tip: { textAlign: "center", color: "#475569", fontSize: 11, fontWeight: "800", letterSpacing: 1.5, marginTop: "auto" },
-  gameOverTitle: { color: "#F8FAFC", fontSize: 40, fontWeight: "900", letterSpacing: -1, marginBottom: 35 }, scoreCard: { width: "100%", backgroundColor: "#FFFFFF0D", borderRadius: 24, padding: 24, alignItems: "center", borderWidth: 1, borderColor: "#FFFFFF12", marginBottom: 28 }, finalScore: { color: "#F8FAFC", fontSize: 68, fontWeight: "900", marginTop: 5 }, divider: { height: 1, backgroundColor: "#FFFFFF16", width: "100%", marginVertical: 18 }, bestRow: { flexDirection: "row", width: "100%", justifyContent: "space-between", alignItems: "center" }, bestScoreSmall: { color: "#F6B83F", fontSize: 21, fontWeight: "900" },
-  modalBackdrop: { flex: 1, backgroundColor: "#080812CC", justifyContent: "flex-end" }, settingsCard: { maxHeight: "82%", backgroundColor: "#1A1D26", borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 25, paddingTop: 16, paddingBottom: 24, borderWidth: 1, borderColor: "#FFFFFF18" }, settingsScroll: { paddingBottom: 8 }, modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }, modalTitle: { color: "#F8FAFC", fontSize: 22, fontWeight: "900", letterSpacing: 1 }, close: { width: 44, height: 44, alignItems: "center", justifyContent: "center" }, settingRow: { minHeight: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#FFFFFF0D" }, settingName: { flexDirection: "row", gap: 14, alignItems: "center" }, settingText: { color: "#F8FAFC", fontSize: 16, fontWeight: "700" }, toggle: { width: 50, height: 30, borderRadius: 20, backgroundColor: "#475569", padding: 3 }, toggleOn: { backgroundColor: "#8B5CF6" }, toggleKnob: { width: 24, height: 24, backgroundColor: "#CBD5E1", borderRadius: 12 }, toggleKnobOn: { backgroundColor: "#FFFFFF", alignSelf: "flex-end" }, settingsFoot: { color: "#64748B", textAlign: "center", fontSize: 12, marginTop: 14 }, transitionCard: { backgroundColor: "#1A1D26", alignItems: "center", padding: 35, borderRadius: 28, margin: 24, borderWidth: 1, borderColor: "#A99BFF44" }, transitionOverline: { color: "#A99BFF", fontWeight: "900", letterSpacing: 2 }, transitionTitle: { color: "#F8FAFC", fontSize: 45, fontWeight: "900", marginTop: 8 }, transitionBody: { color: "#94A3B8", fontSize: 15, marginTop: 8 }
+  safe: { flex: 1, backgroundColor: "#0F1117" }, container: { flex: 1, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 28 }, center: { alignItems: "center", justifyContent: "center" },
+  logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, logoMark: { flexDirection: "row", flexWrap: "wrap", width: 40, gap: 4 }, logoDot: { width: 17, height: 17, borderRadius: 6 }, levelBadge: { borderRadius: 12, borderWidth: 1, borderColor: "#A99BFF55", backgroundColor: "#A99BFF18", paddingHorizontal: 12, paddingVertical: 8 }, levelBadgeText: { color: "#C9C1FF", fontSize: 11, fontWeight: "900", letterSpacing: 1.4 }, hero: { flex: 1, justifyContent: "center", paddingBottom: 20 }, kicker: { color: "#A99BFF", fontWeight: "900", fontSize: 12, letterSpacing: 2.1, marginBottom: 14 }, title: { color: "#F8FAFC", fontSize: 55, lineHeight: 53, fontWeight: "900", letterSpacing: -2 }, titleAccent: { color: "#F04E68" }, subtitle: { color: "#94A3B8", fontSize: 18, lineHeight: 27, marginTop: 22 }, miniBoard: { flexDirection: "row", flexWrap: "wrap", width: 128, gap: 7, marginTop: 32, transform: [{ rotate: "-7deg" }] }, miniPiece: { width: 35, height: 35, borderRadius: 11 }, goalCard: { flexDirection: "row", alignItems: "center", gap: 13, padding: 18, backgroundColor: "#FFFFFF0D", borderRadius: 20, borderWidth: 1, borderColor: "#FFFFFF12", marginBottom: 15 }, statLabel: { color: "#94A3B8", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }, goalValue: { color: "#F8FAFC", fontSize: 19, fontWeight: "900", marginTop: 3 }, playButton: { minHeight: 62, borderRadius: 20, backgroundColor: "#A99BFF", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 12, shadowColor: "#8B5CF6", shadowOpacity: 0.45, shadowRadius: 16, elevation: 8, width: "100%" }, pressed: { transform: [{ scale: 0.97 }] }, playText: { color: "#11101A", fontSize: 16, fontWeight: "900", letterSpacing: 1.2 },
+  gameTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, statValue: { color: "#F8FAFC", fontSize: 25, fontWeight: "900", marginTop: 3 }, levelPill: { backgroundColor: "#A99BFF22", paddingHorizontal: 13, paddingVertical: 9, borderRadius: 14, borderWidth: 1, borderColor: "#A99BFF55" }, levelText: { color: "#C9C1FF", fontSize: 11, fontWeight: "900", letterSpacing: 1 }, movesBox: { alignItems: "flex-end" }, movesValue: { color: "#F4B63E", fontSize: 25, fontWeight: "900", marginTop: 3 }, goalLine: { marginTop: 23, marginBottom: 17 }, goalText: { color: "#94A3B8", fontSize: 11, fontWeight: "800", letterSpacing: 1.2, marginBottom: 8 }, goalStrong: { color: "#F8FAFC" }, goalTrack: { height: 7, borderRadius: 5, backgroundColor: "#FFFFFF12", overflow: "hidden" }, goalFill: { height: "100%", backgroundColor: "#A99BFF", borderRadius: 5 }, boardShell: { alignSelf: "center", backgroundColor: "#25233A", padding: 7, borderRadius: 20, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 18, elevation: 9 }, board: { width: 336, height: 336, flexDirection: "row", flexWrap: "wrap", gap: 3 }, cell: { width: 45, height: 45, borderRadius: 13, alignItems: "center", justifyContent: "center", shadowOpacity: 0.35, shadowRadius: 5, elevation: 4 }, cellSelected: { borderWidth: 3, borderColor: "#FFFFFF", transform: [{ scale: 1.06 }] }, cellPressed: { opacity: 0.75 }, pieceSymbol: { fontSize: 19, fontWeight: "900" }, helper: { flexDirection: "row", alignItems: "center", alignSelf: "center", gap: 9, marginTop: 25 }, helperIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#A99BFF18", alignItems: "center", justifyContent: "center" }, helperText: { color: "#64748B", fontSize: 10, fontWeight: "900", letterSpacing: 1 }, gain: { color: "#76E7C6", textAlign: "center", fontSize: 13, fontWeight: "900", letterSpacing: 1, marginTop: 15 },
+  resultIcon: { width: 72, height: 72, borderRadius: 24, backgroundColor: "#F04E6822", alignItems: "center", justifyContent: "center", marginBottom: 28 }, successIcon: { backgroundColor: "#F4B63E22" }, resultTitle: { color: "#F8FAFC", fontSize: 39, fontWeight: "900", letterSpacing: -1, marginBottom: 28, textAlign: "center" }, resultCard: { width: "100%", backgroundColor: "#FFFFFF0D", borderRadius: 24, padding: 25, alignItems: "center", borderWidth: 1, borderColor: "#FFFFFF12", marginBottom: 28 }, finalScore: { color: "#F8FAFC", fontSize: 68, fontWeight: "900", marginTop: 2 }, resultMessage: { color: "#94A3B8", fontSize: 14, marginTop: 8 },
 });
