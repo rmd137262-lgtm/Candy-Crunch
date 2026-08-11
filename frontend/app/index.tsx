@@ -584,7 +584,7 @@ function Home({ onPlay }: { onPlay: () => void }) {
 
         <View style={styles.hero}>
           <Text style={styles.kicker}>MATCH • CLEAR • COMBO</Text>
-          <Text style={styles.title}>CANDY<Text style={styles.titleAccent}>.</Text>{`\n`}CRUSH</Text>
+          <Text style={styles.title}>SWEET<Text style={styles.titleAccent}>.</Text>{`\n`}BLAST</Text>
           <Text style={styles.subtitle}>Match three sweets.{`\n`}Chase juicy combos.</Text>
           <View style={styles.miniBoard}>
             {[0, 1, 2, 3, 4, 5, 0, 2, 4].map((type, i) => (
