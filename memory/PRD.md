@@ -30,6 +30,8 @@ Create only Level 1 of an original offline Match-3 puzzle game. Players swap adj
 - Verified TypeScript, ESLint, Expo preview, 49-cell board, valid scoring swap, 20-move exhaustion, completion at 505 points, and Retry.
 - Fixed rapid mobile tap race in `handleCell` by making selected cell, board, score, and moves refs authoritative before React state updates.
 - Reverified first-tap selection, rapid adjacent swap, 3+ match clearing/refill, score 0→60, moves 20→19, and 49-cell board integrity (2026-08-11).
+- Candy Crush-style visual + feel overhaul (2026-08-11): bright purple→berry gradient theme, glossy two-tone candy pieces with shine highlights, renamed to "Candy Crush" home hero.
+- Added juicy match feedback: floating "+points" score popups at cleared candy positions, animated COMBO x2/x3 banner on cascades, and Reanimated ZoomIn pop-in for refilled candies. Verified colors render per-type and +60 popup appears on a real match swap.
 
 ## Prioritized backlog
 - P0: None for the requested Level 1 MVP.
