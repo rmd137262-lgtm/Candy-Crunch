@@ -7,6 +7,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import { storage } from "@/src/utils/storage";
 import { initSfx, playSfx, setSfxMuted } from "@/src/utils/sfx";
+import { initAds, showGameOverAd } from "@/src/ads/ads";
+import GameBanner from "@/src/components/GameBanner";
 import Animated, {
   Easing,
   Extrapolation,
@@ -169,6 +171,7 @@ export default function Index() {
 
   useEffect(() => {
     initSfx();
+    initAds();
     storage.getItem("candy_sound_on", true).then((value) => {
       const on = value !== false;
       setSoundOn(on);
@@ -279,6 +282,7 @@ export default function Index() {
       processingRef.current = false;
       if (nextMoves <= 0) {
         playSfx("over");
+        showGameOverAd();
         setScreen("over");
       } else {
         scheduleHint();
@@ -321,9 +325,11 @@ export default function Index() {
     processingRef.current = false;
     if (scoreRef.current >= TARGET) {
       playSfx("win");
+      showGameOverAd();
       setScreen("complete");
     } else if (nextMoves <= 0) {
       playSfx("over");
+      showGameOverAd();
       setScreen("over");
     } else {
       scheduleHint();
@@ -562,6 +568,10 @@ function Game({
             <Text style={styles.helperText}>SWIPE A CANDY TO SWAP</Text>
           </View>
         )}
+
+        <View style={styles.bannerArea}>
+          <GameBanner />
+        </View>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -718,6 +728,7 @@ const styles = StyleSheet.create({
   helper: { flexDirection: "row", alignItems: "center", alignSelf: "center", gap: 9, marginTop: 25 },
   helperIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#FFFFFF22", alignItems: "center", justifyContent: "center" },
   helperText: { color: "#FFFFFFCC", fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  bannerArea: { marginTop: "auto", alignItems: "center", justifyContent: "flex-end", minHeight: 50 },
 
   resultIcon: { width: 72, height: 72, borderRadius: 24, backgroundColor: "#FFFFFF22", alignItems: "center", justifyContent: "center", marginBottom: 28 },
   resultTitle: { color: "#FFFFFF", fontSize: 39, fontWeight: "900", letterSpacing: -1, marginBottom: 28, textAlign: "center" },
