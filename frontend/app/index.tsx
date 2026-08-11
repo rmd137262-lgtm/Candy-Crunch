@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
   Extrapolation,
@@ -171,6 +172,38 @@ export default function Index() {
     }
   };
 
+  const swapCells = (a: number, b: number) => {
+    if (screen !== "game") return;
+    if (!areNeighbors(a, b)) return;
+    const currentBoard = boardRef.current;
+    const swapped = [...currentBoard];
+    [swapped[a], swapped[b]] = [swapped[b], swapped[a]];
+    const matches = findMatches(swapped);
+    selectedRef.current = null;
+    setSelected(null);
+    if (matches.size === 0) {
+      const nextMoves = movesRef.current - 1;
+      movesRef.current = nextMoves;
+      setMoves(nextMoves);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      if (nextMoves <= 0) setScreen("over");
+      return;
+    }
+    const result = resolveBoard(swapped);
+    const nextScore = scoreRef.current + result.gained;
+    const nextMoves = movesRef.current - 1;
+    boardRef.current = result.board;
+    scoreRef.current = nextScore;
+    movesRef.current = nextMoves;
+    setBoard(result.board);
+    setScore(nextScore);
+    setMoves(nextMoves);
+    spawnFeedback(result.steps, result.cascades);
+    Haptics.impactAsync(result.cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
+    if (nextScore >= TARGET) setScreen("complete");
+    else if (nextMoves <= 0) setScreen("over");
+  };
+
   const handleCell = (index: number) => {
     if (screen !== "game") return;
     const currentSelected = selectedRef.current;
@@ -191,35 +224,11 @@ export default function Index() {
       Haptics.selectionAsync();
       return;
     }
-    const currentBoard = boardRef.current;
-    const swapped = [...currentBoard];
-    [swapped[currentSelected], swapped[index]] = [swapped[index], swapped[currentSelected]];
-    const matches = findMatches(swapped);
-    if (matches.size === 0) {
-      const nextMoves = movesRef.current - 1;
-      movesRef.current = nextMoves;
-      selectedRef.current = null;
-      setMoves(nextMoves);
-      setSelected(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      if (nextMoves <= 0) setScreen("over");
-      return;
-    }
-    const result = resolveBoard(swapped);
-    const nextScore = scoreRef.current + result.gained;
-    const nextMoves = movesRef.current - 1;
-    boardRef.current = result.board;
-    scoreRef.current = nextScore;
-    movesRef.current = nextMoves;
-    selectedRef.current = null;
-    setBoard(result.board);
-    setScore(nextScore);
-    setMoves(nextMoves);
-    setSelected(null);
-    spawnFeedback(result.steps, result.cascades);
-    Haptics.impactAsync(result.cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
-    if (nextScore >= TARGET) setScreen("complete");
-    else if (nextMoves <= 0) setScreen("over");
+    swapCells(currentSelected, index);
+  };
+
+  const handleSwipe = (from: number, to: number) => {
+    swapCells(from, to);
   };
 
   if (screen === "home") return <Home onPlay={startGame} />;
@@ -227,7 +236,7 @@ export default function Index() {
     return <Result title="LEVEL COMPLETE" eyebrow="SWEET VICTORY" score={score} message="Level 1 target smashed!" button="PLAY AGAIN" onPress={startGame} success />;
   if (screen === "over")
     return <Result title="GAME OVER" eyebrow="OUT OF MOVES" score={score} message="Line up more candies and beat 500." button="RETRY" onPress={startGame} />;
-  return <Game board={board} selected={selected} score={score} moves={moves} popups={popups} combo={combo} onCell={handleCell} />;
+  return <Game board={board} selected={selected} score={score} moves={moves} popups={popups} combo={combo} onCell={handleCell} onSwipe={handleSwipe} />;
 }
 
 function Candy({ piece, index, selected, onCell }: { piece: Piece; index: number; selected: boolean; onCell: (index: number) => void }) {
@@ -278,6 +287,7 @@ function Game({
   popups,
   combo,
   onCell,
+  onSwipe,
 }: {
   board: Piece[];
   selected: number | null;
@@ -286,7 +296,40 @@ function Game({
   popups: Popup[];
   combo: number;
   onCell: (index: number) => void;
+  onSwipe: (from: number, to: number) => void;
 }) {
+  const startRef = useRef<number | null>(null);
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .minDistance(10)
+        .runOnJS(true)
+        .onStart((e) => {
+          const col = Math.max(0, Math.min(SIZE - 1, Math.floor(e.x / STEP)));
+          const row = Math.max(0, Math.min(SIZE - 1, Math.floor(e.y / STEP)));
+          startRef.current = row * SIZE + col;
+        })
+        .onEnd((e) => {
+          const from = startRef.current;
+          startRef.current = null;
+          if (from === null) return;
+          const tx = e.translationX;
+          const ty = e.translationY;
+          if (Math.abs(tx) < 10 && Math.abs(ty) < 10) return;
+          const row = Math.floor(from / SIZE);
+          const col = from % SIZE;
+          if (Math.abs(tx) > Math.abs(ty)) {
+            const nc = col + (tx > 0 ? 1 : -1);
+            if (nc < 0 || nc >= SIZE) return;
+            onSwipe(from, row * SIZE + nc);
+          } else {
+            const nr = row + (ty > 0 ? 1 : -1);
+            if (nr < 0 || nr >= SIZE) return;
+            onSwipe(from, nr * SIZE + col);
+          }
+        }),
+    [onSwipe],
+  );
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient colors={["#7A3FF2", "#E056A0"]} style={styles.container}>
@@ -312,11 +355,13 @@ function Game({
         </View>
 
         <View style={styles.boardShell}>
-          <View style={styles.board}>
-            {board.map((piece, index) => (
-              <Candy key={piece.id} piece={piece} index={index} selected={selected === index} onCell={onCell} />
-            ))}
-          </View>
+          <GestureDetector gesture={pan}>
+            <View style={styles.board}>
+              {board.map((piece, index) => (
+                <Candy key={piece.id} piece={piece} index={index} selected={selected === index} onCell={onCell} />
+              ))}
+            </View>
+          </GestureDetector>
           <View pointerEvents="none" style={styles.overlay}>
             {popups.map((popup) => (
               <ScorePopup key={popup.id} x={popup.x} y={popup.y} label={popup.label} />
@@ -334,7 +379,7 @@ function Game({
             <View style={styles.helperIcon}>
               <Ionicons name="swap-horizontal" size={18} color="#FFFFFF" />
             </View>
-            <Text style={styles.helperText}>TAP TWO ADJACENT CANDIES TO SWAP</Text>
+            <Text style={styles.helperText}>SWIPE A CANDY TO SWAP</Text>
           </View>
         )}
       </LinearGradient>
