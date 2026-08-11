@@ -33,6 +33,9 @@ Create only Level 1 of an original offline Match-3 puzzle game. Players swap adj
 - Candy Crush-style visual + feel overhaul (2026-08-11): bright purple→berry gradient theme, glossy two-tone candy pieces with shine highlights, renamed to "Candy Crush" home hero.
 - Added juicy match feedback: floating "+points" score popups at cleared candy positions, animated COMBO x2/x3 banner on cascades, and Reanimated ZoomIn pop-in for refilled candies. Verified colors render per-type and +60 popup appears on a real match swap.
 - Added Candy Crush-style SWIPE controls (2026-08-11): touch a candy and drag toward an adjacent candy to swap, via react-native-gesture-handler Pan (minDistance 10, direction-resolved target). GestureHandlerRootView added in _layout. Tap-to-select-then-tap still works as a fallback. Verified swipe swap on web produces a match (score 0→60, moves 20→19, +60 popup).
+- Rebuilt the board as a fully ANIMATED engine (2026-08-11): each candy is absolutely positioned and animates its own position/scale/opacity via Reanimated. Swap slides candies (170ms), invalid swaps slide back and burn a move, matched candies pop/shrink (200ms), survivors fall with gravity and new candies drop in from above (320ms), cascading step-by-step. Score ticks up per cascade with +points popups and a COMBO banner.
+- Added an idle HINT system: after 4s of no input, findValidSwap() locates a legal move and the two candies pulse a white glow ring so the player knows what to swap. Verified exactly 2 rings glow on idle and no score/move changes.
+- Added offline generated (copyright-free) sound effects via expo-audio (swap/match/combo/win/over) with a header sound ON/OFF toggle persisted to local storage. Verified audio does not crash on web and playback is guarded.
 
 ## Prioritized backlog
 - P0: None for the requested Level 1 MVP.

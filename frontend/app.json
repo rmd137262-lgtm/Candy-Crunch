@@ -13,7 +13,9 @@
       "bundleIdentifier": "com.emergent.colortapperv.hbv3zs"
     },
     "android": {
-      "permissions": ["VIBRATE"],
+      "permissions": [
+        "VIBRATE"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -36,7 +38,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

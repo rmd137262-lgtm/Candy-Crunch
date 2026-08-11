@@ -4,20 +4,23 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+
+import { storage } from "@/src/utils/storage";
+import { initSfx, playSfx, setSfxMuted } from "@/src/utils/sfx";
 import Animated, {
   Easing,
   Extrapolation,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
   ZoomIn,
 } from "react-native-reanimated";
 
 type Screen = "home" | "game" | "complete" | "over";
-type Piece = { id: number; type: number };
+type Piece = { id: number; type: number; row: number; col: number; clearing?: boolean; spawn?: boolean; falling?: boolean; fromRow?: number };
 type Popup = { id: number; x: number; y: number; label: string };
-type CascadeStep = { indices: number[]; points: number };
 
 const SIZE = 7;
 const TARGET = 500;
@@ -25,7 +28,11 @@ const STARTING_MOVES = 20;
 const CELL = 45;
 const GAP = 3;
 const STEP = CELL + GAP; // 48
-const PAD = 7; // board tray inner padding
+const BOARD = (SIZE - 1) * STEP + CELL; // 333
+
+const SWAP_MS = 170;
+const POP_MS = 200;
+const FALL_MS = 320;
 
 // Original candy palette (deep base + light gloss core). No copyrighted assets.
 const PIECES = [
@@ -37,198 +44,317 @@ const PIECES = [
   { name: "Apple", color: "#28C76F", light: "#8DE9B4" },
 ];
 
-const indexOf = (row: number, col: number) => row * SIZE + col;
-const areNeighbors = (a: number, b: number) => {
-  const ar = Math.floor(a / SIZE);
-  const ac = a % SIZE;
-  const br = Math.floor(b / SIZE);
-  const bc = b % SIZE;
-  return Math.abs(ar - br) + Math.abs(ac - bc) === 1;
-};
+const idx = (row: number, col: number) => row * SIZE + col;
+const areNeighbors = (a: number, b: number) =>
+  Math.abs(Math.floor(a / SIZE) - Math.floor(b / SIZE)) + Math.abs((a % SIZE) - (b % SIZE)) === 1;
+const wait = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
 
-function findMatches(board: (Piece | null)[]) {
+function gridFromPieces(pieces: Piece[]): (Piece | null)[] {
+  const grid: (Piece | null)[] = new Array(SIZE * SIZE).fill(null);
+  pieces.forEach((p) => {
+    if (!p.clearing) grid[idx(p.row, p.col)] = p;
+  });
+  return grid;
+}
+
+function findMatches(grid: (Piece | null)[]) {
   const matches = new Set<number>();
   for (let row = 0; row < SIZE; row += 1) {
     let start = 0;
     while (start < SIZE) {
-      const first = board[indexOf(row, start)];
+      const first = grid[idx(row, start)];
       let end = start + 1;
-      while (end < SIZE && first && board[indexOf(row, end)]?.type === first.type) end += 1;
-      if (first && end - start >= 3) for (let col = start; col < end; col += 1) matches.add(indexOf(row, col));
+      while (end < SIZE && first && grid[idx(row, end)]?.type === first.type) end += 1;
+      if (first && end - start >= 3) for (let col = start; col < end; col += 1) matches.add(idx(row, col));
       start = end;
     }
   }
   for (let col = 0; col < SIZE; col += 1) {
     let start = 0;
     while (start < SIZE) {
-      const first = board[indexOf(start, col)];
+      const first = grid[idx(start, col)];
       let end = start + 1;
-      while (end < SIZE && first && board[indexOf(end, col)]?.type === first.type) end += 1;
-      if (first && end - start >= 3) for (let row = start; row < end; row += 1) matches.add(indexOf(row, col));
+      while (end < SIZE && first && grid[idx(end, col)]?.type === first.type) end += 1;
+      if (first && end - start >= 3) for (let row = start; row < end; row += 1) matches.add(idx(row, col));
       start = end;
     }
   }
   return matches;
 }
 
-function createBoard(): Piece[] {
-  let nextId = 1;
-  const board: Piece[] = [];
+// Returns a valid adjacent swap that would create a match, or null.
+function findValidSwap(pieces: Piece[]): { a: number; b: number } | null {
+  const grid = gridFromPieces(pieces);
+  for (let row = 0; row < SIZE; row += 1) {
+    for (let col = 0; col < SIZE; col += 1) {
+      const a = idx(row, col);
+      const dirs = [
+        [0, 1],
+        [1, 0],
+      ];
+      for (const [dr, dc] of dirs) {
+        const nr = row + dr;
+        const nc = col + dc;
+        if (nr >= SIZE || nc >= SIZE) continue;
+        const b = idx(nr, nc);
+        const test = [...grid];
+        [test[a], test[b]] = [test[b], test[a]];
+        if (findMatches(test).size > 0) return { a, b };
+      }
+    }
+  }
+  return null;
+}
+
+let PIECE_ID = 1;
+function initPieces(): Piece[] {
+  const types: number[] = [];
   for (let row = 0; row < SIZE; row += 1) {
     for (let col = 0; col < SIZE; col += 1) {
       const choices = PIECES.map((_, type) => type).filter((type) => {
-        const left = col >= 2 ? board[indexOf(row, col - 1)]?.type === type && board[indexOf(row, col - 2)]?.type === type : false;
-        const up = row >= 2 ? board[indexOf(row - 1, col)]?.type === type && board[indexOf(row - 2, col)]?.type === type : false;
+        const left = col >= 2 ? types[idx(row, col - 1)] === type && types[idx(row, col - 2)] === type : false;
+        const up = row >= 2 ? types[idx(row - 1, col)] === type && types[idx(row - 2, col)] === type : false;
         return !left && !up;
       });
-      const type = choices[Math.floor(Math.random() * choices.length)];
-      board.push({ id: nextId, type });
-      nextId += 1;
+      types[idx(row, col)] = choices[Math.floor(Math.random() * choices.length)];
     }
   }
-  return board;
+  const pieces: Piece[] = [];
+  for (let row = 0; row < SIZE; row += 1) {
+    for (let col = 0; col < SIZE; col += 1) {
+      PIECE_ID += 1;
+      pieces.push({ id: PIECE_ID, type: types[idx(row, col)], row, col });
+    }
+  }
+  return pieces;
 }
 
-let refillId = 100000;
-function resolveBoard(input: Piece[]) {
-  let board: (Piece | null)[] = [...input];
-  let gained = 0;
-  let cascade = 0;
-  const steps: CascadeStep[] = [];
-  while (true) {
-    const matches = findMatches(board);
-    if (matches.size === 0) break;
-    cascade += 1;
-    const points = matches.size * 20 + (cascade - 1) * 25;
-    gained += points;
-    steps.push({ indices: Array.from(matches), points });
-    matches.forEach((index) => {
-      board[index] = null;
-    });
-    for (let col = 0; col < SIZE; col += 1) {
-      const filled: Piece[] = [];
-      for (let row = SIZE - 1; row >= 0; row -= 1) {
-        const piece = board[indexOf(row, col)];
-        if (piece) filled.push(piece);
-      }
-      for (let row = SIZE - 1; row >= 0; row -= 1) {
-        refillId += 1;
-        board[indexOf(row, col)] = filled[SIZE - 1 - row] ?? { id: refillId, type: Math.floor(Math.random() * PIECES.length) };
-      }
+// Drop survivors to the bottom of each column and spawn new candies above.
+function collapse(survivors: Piece[]): Piece[] {
+  const next: Piece[] = [];
+  for (let col = 0; col < SIZE; col += 1) {
+    const colPieces = survivors.filter((p) => p.col === col).sort((a, b) => a.row - b.row);
+    let row = SIZE - 1;
+    for (let k = colPieces.length - 1; k >= 0; k -= 1) {
+      next.push({ ...colPieces[k], row, col, falling: true, spawn: false, clearing: false });
+      row -= 1;
+    }
+    while (row >= 0) {
+      PIECE_ID += 1;
+      next.push({ id: PIECE_ID, type: Math.floor(Math.random() * PIECES.length), row, col, spawn: true, falling: true, fromRow: row - SIZE });
+      row -= 1;
     }
   }
-  return { board: board as Piece[], gained, steps, cascades: cascade };
+  return next;
 }
 
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("home");
-  const [board, setBoard] = useState<Piece[]>(() => createBoard());
+  const [pieces, setPieces] = useState<Piece[]>(() => initPieces());
   const [selected, setSelected] = useState<number | null>(null);
   const [score, setScore] = useState(0);
   const [moves, setMoves] = useState(STARTING_MOVES);
   const [popups, setPopups] = useState<Popup[]>([]);
   const [combo, setCombo] = useState(0);
-  const boardRef = useRef(board);
+  const [hint, setHint] = useState<{ a: number; b: number } | null>(null);
+  const [soundOn, setSoundOn] = useState(true);
+
+  const piecesRef = useRef(pieces);
   const selectedRef = useRef<number | null>(null);
   const scoreRef = useRef(0);
   const movesRef = useRef(STARTING_MOVES);
+  const processingRef = useRef(false);
   const popupId = useRef(0);
+  const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    initSfx();
+    storage.getItem("candy_sound_on", true).then((value) => {
+      const on = value !== false;
+      setSoundOn(on);
+      setSfxMuted(!on);
+    });
+    return () => {
+      if (idleRef.current) clearTimeout(idleRef.current);
+    };
+  }, []);
+
+  const clearHint = () => {
+    setHint(null);
+    if (idleRef.current) clearTimeout(idleRef.current);
+  };
+
+  const scheduleHint = () => {
+    if (idleRef.current) clearTimeout(idleRef.current);
+    idleRef.current = setTimeout(() => {
+      if (processingRef.current) return;
+      if (movesRef.current <= 0 || scoreRef.current >= TARGET) return;
+      const move = findValidSwap(piecesRef.current);
+      if (move) setHint(move);
+    }, 4000);
+  };
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSfxMuted(!next);
+    storage.setItem("candy_sound_on", next);
+    if (next) playSfx("swap");
+  };
+
+  const commit = (next: Piece[]) => {
+    piecesRef.current = next;
+    setPieces(next);
+  };
 
   const startGame = () => {
-    const freshBoard = createBoard();
-    boardRef.current = freshBoard;
+    const fresh = initPieces();
+    piecesRef.current = fresh;
     selectedRef.current = null;
     scoreRef.current = 0;
     movesRef.current = STARTING_MOVES;
-    setBoard(freshBoard);
+    processingRef.current = false;
+    setPieces(fresh);
     setScore(0);
     setMoves(STARTING_MOVES);
     setSelected(null);
     setPopups([]);
     setCombo(0);
+    setHint(null);
     setScreen("game");
+    scheduleHint();
   };
 
-  const spawnFeedback = (steps: CascadeStep[], cascades: number) => {
-    const created: Popup[] = steps.map((step) => {
-      const rows = step.indices.map((i) => Math.floor(i / SIZE));
-      const cols = step.indices.map((i) => i % SIZE);
-      const avgRow = rows.reduce((a, b) => a + b, 0) / rows.length;
-      const avgCol = cols.reduce((a, b) => a + b, 0) / cols.length;
-      popupId.current += 1;
-      return {
-        id: popupId.current,
-        x: PAD + avgCol * STEP + CELL / 2,
-        y: PAD + avgRow * STEP + CELL / 2,
-        label: `+${step.points}`,
-      };
+  const spawnPopup = (indices: number[], points: number) => {
+    const rows = indices.map((i) => Math.floor(i / SIZE));
+    const cols = indices.map((i) => i % SIZE);
+    const avgRow = rows.reduce((a, b) => a + b, 0) / rows.length;
+    const avgCol = cols.reduce((a, b) => a + b, 0) / cols.length;
+    popupId.current += 1;
+    const pop: Popup = { id: popupId.current, x: avgCol * STEP + CELL / 2, y: avgRow * STEP + CELL / 2, label: `+${points}` };
+    setPopups((prev) => [...prev, pop]);
+    setTimeout(() => setPopups((prev) => prev.filter((p) => p.id !== pop.id)), 950);
+  };
+
+  const pieceAt = (list: Piece[], index: number) =>
+    list.find((p) => !p.clearing && idx(p.row, p.col) === index);
+
+  const applyMove = async (a: number, b: number) => {
+    if (processingRef.current || screen !== "game") return;
+    if (!areNeighbors(a, b)) return;
+    const list = piecesRef.current;
+    const pa = pieceAt(list, a);
+    const pb = pieceAt(list, b);
+    if (!pa || !pb) return;
+
+    processingRef.current = true;
+    setSelected(null);
+    selectedRef.current = null;
+    clearHint();
+    playSfx("swap");
+
+    // 1) Animate the swap.
+    let work = list.map((p) => {
+      if (p.id === pa.id) return { ...p, row: pb.row, col: pb.col, falling: false };
+      if (p.id === pb.id) return { ...p, row: pa.row, col: pa.col, falling: false };
+      return p;
     });
-    setPopups((prev) => [...prev, ...created]);
-    const ids = created.map((p) => p.id);
-    setTimeout(() => setPopups((prev) => prev.filter((p) => !ids.includes(p.id))), 950);
+    commit(work);
+    Haptics.selectionAsync();
+    await wait(SWAP_MS + 20);
+
+    // 2) No match? Slide back and burn a move.
+    if (findMatches(gridFromPieces(work)).size === 0) {
+      work = work.map((p) => {
+        if (p.id === pa.id) return { ...p, row: pa.row, col: pa.col };
+        if (p.id === pb.id) return { ...p, row: pb.row, col: pb.col };
+        return p;
+      });
+      commit(work);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      await wait(SWAP_MS + 20);
+      const nextMoves = movesRef.current - 1;
+      movesRef.current = nextMoves;
+      setMoves(nextMoves);
+      processingRef.current = false;
+      if (nextMoves <= 0) {
+        playSfx("over");
+        setScreen("over");
+      } else {
+        scheduleHint();
+      }
+      return;
+    }
+
+    // 3) Resolve cascades with pop + fall animations.
+    let cascades = 0;
+    while (true) {
+      const matches = findMatches(gridFromPieces(work));
+      if (matches.size === 0) break;
+      cascades += 1;
+      const indices = Array.from(matches);
+      const points = matches.size * 20 + (cascades - 1) * 25;
+      scoreRef.current += points;
+      setScore(scoreRef.current);
+      spawnPopup(indices, points);
+      playSfx(cascades >= 2 ? "combo" : "match");
+      Haptics.impactAsync(cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
+
+      // pop the matched candies
+      work = work.map((p) => (matches.has(idx(p.row, p.col)) ? { ...p, clearing: true } : p));
+      commit(work);
+      await wait(POP_MS);
+
+      // drop survivors + spawn new candies
+      work = collapse(work.filter((p) => !p.clearing));
+      commit(work);
+      await wait(FALL_MS);
+    }
+
+    const nextMoves = movesRef.current - 1;
+    movesRef.current = nextMoves;
+    setMoves(nextMoves);
     if (cascades >= 2) {
       setCombo(cascades);
       setTimeout(() => setCombo(0), 950);
     }
-  };
-
-  const swapCells = (a: number, b: number) => {
-    if (screen !== "game") return;
-    if (!areNeighbors(a, b)) return;
-    const currentBoard = boardRef.current;
-    const swapped = [...currentBoard];
-    [swapped[a], swapped[b]] = [swapped[b], swapped[a]];
-    const matches = findMatches(swapped);
-    selectedRef.current = null;
-    setSelected(null);
-    if (matches.size === 0) {
-      const nextMoves = movesRef.current - 1;
-      movesRef.current = nextMoves;
-      setMoves(nextMoves);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      if (nextMoves <= 0) setScreen("over");
-      return;
+    processingRef.current = false;
+    if (scoreRef.current >= TARGET) {
+      playSfx("win");
+      setScreen("complete");
+    } else if (nextMoves <= 0) {
+      playSfx("over");
+      setScreen("over");
+    } else {
+      scheduleHint();
     }
-    const result = resolveBoard(swapped);
-    const nextScore = scoreRef.current + result.gained;
-    const nextMoves = movesRef.current - 1;
-    boardRef.current = result.board;
-    scoreRef.current = nextScore;
-    movesRef.current = nextMoves;
-    setBoard(result.board);
-    setScore(nextScore);
-    setMoves(nextMoves);
-    spawnFeedback(result.steps, result.cascades);
-    Haptics.impactAsync(result.cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
-    if (nextScore >= TARGET) setScreen("complete");
-    else if (nextMoves <= 0) setScreen("over");
   };
 
   const handleCell = (index: number) => {
-    if (screen !== "game") return;
-    const currentSelected = selectedRef.current;
-    if (currentSelected === null) {
+    if (processingRef.current || screen !== "game") return;
+    clearHint();
+    scheduleHint();
+    const sel = selectedRef.current;
+    if (sel === null) {
       selectedRef.current = index;
       setSelected(index);
       Haptics.selectionAsync();
       return;
     }
-    if (currentSelected === index) {
+    if (sel === index) {
       selectedRef.current = null;
       setSelected(null);
       return;
     }
-    if (!areNeighbors(currentSelected, index)) {
+    if (!areNeighbors(sel, index)) {
       selectedRef.current = index;
       setSelected(index);
       Haptics.selectionAsync();
       return;
     }
-    swapCells(currentSelected, index);
-  };
-
-  const handleSwipe = (from: number, to: number) => {
-    swapCells(from, to);
+    selectedRef.current = null;
+    setSelected(null);
+    applyMove(sel, index);
   };
 
   if (screen === "home") return <Home onPlay={startGame} />;
@@ -236,25 +362,67 @@ export default function Index() {
     return <Result title="LEVEL COMPLETE" eyebrow="SWEET VICTORY" score={score} message="Level 1 target smashed!" button="PLAY AGAIN" onPress={startGame} success />;
   if (screen === "over")
     return <Result title="GAME OVER" eyebrow="OUT OF MOVES" score={score} message="Line up more candies and beat 500." button="RETRY" onPress={startGame} />;
-  return <Game board={board} selected={selected} score={score} moves={moves} popups={popups} combo={combo} onCell={handleCell} onSwipe={handleSwipe} />;
+  return <Game pieces={pieces} selected={selected} score={score} moves={moves} popups={popups} combo={combo} hint={hint} soundOn={soundOn} onCell={handleCell} onSwipe={applyMove} onToggleSound={toggleSound} />;
 }
 
-function Candy({ piece, index, selected, onCell }: { piece: Piece; index: number; selected: boolean; onCell: (index: number) => void }) {
+function Candy({ piece, selected, hinted, onCell }: { piece: Piece; selected: boolean; hinted: boolean; onCell: (index: number) => void }) {
   const palette = PIECES[piece.type];
+  const x = useSharedValue(piece.col * STEP);
+  const y = useSharedValue((piece.spawn ? (piece.fromRow ?? piece.row) : piece.row) * STEP);
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+  const glow = useSharedValue(0);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    x.value = withTiming(piece.col * STEP, { duration: SWAP_MS, easing: Easing.inOut(Easing.quad) });
+  }, [piece.col, x]);
+
+  useEffect(() => {
+    y.value = withTiming(piece.row * STEP, {
+      duration: piece.falling ? FALL_MS : SWAP_MS,
+      easing: piece.falling ? Easing.out(Easing.cubic) : Easing.inOut(Easing.quad),
+    });
+  }, [piece.row, piece.falling, y]);
+
+  useEffect(() => {
+    if (piece.clearing) {
+      scale.value = withTiming(0, { duration: POP_MS, easing: Easing.in(Easing.quad) });
+      opacity.value = withTiming(0, { duration: POP_MS });
+    }
+  }, [piece.clearing, scale, opacity]);
+
+  useEffect(() => {
+    if (mounted.current) return;
+    mounted.current = true;
+    scale.value = 0.5;
+    scale.value = withTiming(1, { duration: POP_MS, easing: Easing.out(Easing.back(1.7)) });
+  }, [scale]);
+
+  useEffect(() => {
+    if (hinted) {
+      glow.value = withRepeat(withTiming(1, { duration: 500 }), -1, true);
+    } else {
+      glow.value = withTiming(0, { duration: 200 });
+    }
+  }, [hinted, glow]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
+    opacity: opacity.value,
+  }));
+  const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
+
   return (
-    <Animated.View entering={ZoomIn.duration(240)} style={styles.cellWrap}>
+    <Animated.View style={[styles.candyAbs, animatedStyle]}>
       <Pressable
-        testID={`cell-${index}`}
-        onPress={() => onCell(index)}
-        style={({ pressed }) => [
-          styles.cell,
-          { backgroundColor: palette.color, shadowColor: palette.color },
-          selected && styles.cellSelected,
-          pressed && styles.cellPressed,
-        ]}
+        testID={`cell-${idx(piece.row, piece.col)}`}
+        onPress={() => onCell(idx(piece.row, piece.col))}
+        style={[styles.cell, { backgroundColor: palette.color, shadowColor: palette.color }, selected && styles.cellSelected]}
       >
         <View style={[styles.candyCore, { backgroundColor: palette.light }]} />
         <View style={styles.candyShine} />
+        <Animated.View pointerEvents="none" style={[styles.hintRing, glowStyle]} />
       </Pressable>
     </Animated.View>
   );
@@ -280,23 +448,29 @@ function ScorePopup({ x, y, label }: { x: number; y: number; label: string }) {
 }
 
 function Game({
-  board,
+  pieces,
   selected,
   score,
   moves,
   popups,
   combo,
+  hint,
+  soundOn,
   onCell,
   onSwipe,
+  onToggleSound,
 }: {
-  board: Piece[];
+  pieces: Piece[];
   selected: number | null;
   score: number;
   moves: number;
   popups: Popup[];
   combo: number;
+  hint: { a: number; b: number } | null;
+  soundOn: boolean;
   onCell: (index: number) => void;
   onSwipe: (from: number, to: number) => void;
+  onToggleSound: () => void;
 }) {
   const startRef = useRef<number | null>(null);
   const pan = useMemo(
@@ -307,7 +481,7 @@ function Game({
         .onStart((e) => {
           const col = Math.max(0, Math.min(SIZE - 1, Math.floor(e.x / STEP)));
           const row = Math.max(0, Math.min(SIZE - 1, Math.floor(e.y / STEP)));
-          startRef.current = row * SIZE + col;
+          startRef.current = idx(row, col);
         })
         .onEnd((e) => {
           const from = startRef.current;
@@ -321,15 +495,16 @@ function Game({
           if (Math.abs(tx) > Math.abs(ty)) {
             const nc = col + (tx > 0 ? 1 : -1);
             if (nc < 0 || nc >= SIZE) return;
-            onSwipe(from, row * SIZE + nc);
+            onSwipe(from, idx(row, nc));
           } else {
             const nr = row + (ty > 0 ? 1 : -1);
             if (nr < 0 || nr >= SIZE) return;
-            onSwipe(from, nr * SIZE + col);
+            onSwipe(from, idx(nr, col));
           }
         }),
     [onSwipe],
   );
+
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient colors={["#7A3FF2", "#E056A0"]} style={styles.container}>
@@ -338,8 +513,13 @@ function Game({
             <Text style={styles.statLabel}>SCORE</Text>
             <Text testID="score-value" style={styles.statValue}>{score}</Text>
           </View>
-          <View style={styles.levelPill}>
-            <Text style={styles.levelText}>LEVEL 1</Text>
+          <View style={styles.centerGroup}>
+            <View style={styles.levelPill}>
+              <Text style={styles.levelText}>LEVEL 1</Text>
+            </View>
+            <Pressable testID="sound-toggle" onPress={onToggleSound} style={styles.soundBtn}>
+              <Ionicons name={soundOn ? "volume-high" : "volume-mute"} size={16} color="#FFFFFF" />
+            </Pressable>
           </View>
           <View style={styles.movesBox}>
             <Text style={styles.statLabel}>MOVES</Text>
@@ -357,8 +537,8 @@ function Game({
         <View style={styles.boardShell}>
           <GestureDetector gesture={pan}>
             <View style={styles.board}>
-              {board.map((piece, index) => (
-                <Candy key={piece.id} piece={piece} index={index} selected={selected === index} onCell={onCell} />
+              {pieces.map((piece) => (
+                <Candy key={piece.id} piece={piece} selected={selected === idx(piece.row, piece.col)} hinted={!!hint && (hint.a === idx(piece.row, piece.col) || hint.b === idx(piece.row, piece.col))} onCell={onCell} />
               ))}
             </View>
           </GestureDetector>
@@ -370,7 +550,7 @@ function Game({
         </View>
 
         {combo >= 2 ? (
-          <Animated.View key={combo} entering={ZoomIn.duration(260).easing(Easing.out(Easing.back(2)))} style={styles.comboBanner}>
+          <Animated.View key={combo} entering={ZoomIn.duration(260)} style={styles.comboBanner}>
             <Ionicons name="sparkles" size={16} color="#FFE585" />
             <Text style={styles.comboText}>COMBO x{combo}!</Text>
           </Animated.View>
@@ -513,15 +693,17 @@ const styles = StyleSheet.create({
   goalTrack: { height: 8, borderRadius: 5, backgroundColor: "#FFFFFF33", overflow: "hidden" },
   goalFill: { height: "100%", backgroundColor: "#FFE585", borderRadius: 5 },
 
-  boardShell: { alignSelf: "center", backgroundColor: "#FFFFFF1F", padding: PAD, borderRadius: 24, borderWidth: 1, borderColor: "#FFFFFF33", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 9 },
-  board: { width: SIZE * CELL + (SIZE - 1) * GAP, height: SIZE * CELL + (SIZE - 1) * GAP, flexDirection: "row", flexWrap: "wrap", gap: GAP },
-  overlay: { position: "absolute", left: PAD, top: PAD, width: SIZE * CELL + (SIZE - 1) * GAP, height: SIZE * CELL + (SIZE - 1) * GAP },
-  cellWrap: { width: CELL, height: CELL },
+  boardShell: { alignSelf: "center", backgroundColor: "#FFFFFF1F", padding: 7, borderRadius: 24, borderWidth: 1, borderColor: "#FFFFFF33", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 9 },
+  board: { width: BOARD, height: BOARD, overflow: "hidden" },
+  overlay: { position: "absolute", left: 7, top: 7, width: BOARD, height: BOARD },
+  candyAbs: { position: "absolute", top: 0, left: 0, width: CELL, height: CELL },
   cell: { width: CELL, height: CELL, borderRadius: 22, alignItems: "center", justifyContent: "center", shadowOpacity: 0.4, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
-  cellSelected: { borderWidth: 3, borderColor: "#FFFFFF", transform: [{ scale: 1.08 }] },
-  cellPressed: { opacity: 0.8 },
+  cellSelected: { borderWidth: 3, borderColor: "#FFFFFF" },
   candyCore: { width: 20, height: 20, borderRadius: 10, opacity: 0.9 },
   candyShine: { position: "absolute", top: 8, left: 9, width: 13, height: 8, borderRadius: 6, backgroundColor: "#FFFFFFB0" },
+  hintRing: { position: "absolute", top: -3, left: -3, right: -3, bottom: -3, borderRadius: 24, borderWidth: 3, borderColor: "#FFFFFF" },
+  centerGroup: { flexDirection: "row", alignItems: "center", gap: 8 },
+  soundBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#FFFFFF22", borderWidth: 1, borderColor: "#FFFFFF66", alignItems: "center", justifyContent: "center" },
 
   popup: { position: "absolute", width: 90, alignItems: "center" },
   popupText: { color: "#FFFFFF", fontSize: 20, fontWeight: "900", letterSpacing: 0.5, textShadowColor: "#00000066", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
