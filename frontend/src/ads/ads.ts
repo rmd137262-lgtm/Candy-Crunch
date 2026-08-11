@@ -5,9 +5,12 @@
 // release. All calls are guarded so the game never crashes when ads are off.
 
 import Constants, { ExecutionEnvironment } from "expo-constants";
+import { Platform } from "react-native";
 
 // Expo Go ships as StoreClient and does NOT contain the AdMob native module.
 export const adsEnabled = Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
+
+const INTERSTITIAL_ANDROID = "ca-app-pub-8747629647202579/4045985930";
 
 let interstitial: { load: () => void; show: () => void } | null = null;
 let loaded = false;
@@ -17,7 +20,11 @@ export async function initAds() {
   try {
     const Ads = await import("react-native-google-mobile-ads");
     await Ads.default().initialize();
-    interstitial = Ads.InterstitialAd.createForAdRequest(Ads.TestIds.INTERSTITIAL, {
+    // TEST ad in development to protect the account; real unit in production.
+    const interstitialId = __DEV__
+      ? Ads.TestIds.INTERSTITIAL
+      : Platform.select({ android: INTERSTITIAL_ANDROID, default: Ads.TestIds.INTERSTITIAL });
+    interstitial = Ads.InterstitialAd.createForAdRequest(interstitialId as string, {
       requestNonPersonalizedAdsOnly: true,
     });
     interstitial.addAdEventListener(Ads.AdEventType.LOADED, () => {
