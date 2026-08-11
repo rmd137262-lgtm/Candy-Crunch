@@ -574,7 +574,10 @@ function Home({ onPlay }: { onPlay: () => void }) {
         <View style={styles.logoRow}>
           <View style={styles.logoMark}>
             {PIECES.slice(0, 4).map((piece) => (
-              <View key={piece.name} style={[styles.logoDot, { backgroundColor: piece.color }]} />
+              <View key={piece.name} style={[styles.logoDot, { backgroundColor: piece.color, shadowColor: piece.color }]}>
+                <View style={[styles.logoCore, { backgroundColor: piece.light }]} />
+                <View style={styles.logoShine} />
+              </View>
             ))}
           </View>
           <View style={styles.levelBadge}>
@@ -584,7 +587,7 @@ function Home({ onPlay }: { onPlay: () => void }) {
 
         <View style={styles.hero}>
           <Text style={styles.kicker}>MATCH • CLEAR • COMBO</Text>
-          <Text style={styles.title}>SWEET<Text style={styles.titleAccent}>.</Text>{`\n`}BLAST</Text>
+          <Text style={styles.title}>CANDY<Text style={styles.titleAccent}>.</Text>{`\n`}CRUNCH</Text>
           <Text style={styles.subtitle}>Match three sweets.{`\n`}Chase juicy combos.</Text>
           <View style={styles.miniBoard}>
             {[0, 1, 2, 3, 4, 5, 0, 2, 4].map((type, i) => (
@@ -662,8 +665,10 @@ const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center" },
 
   logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  logoMark: { flexDirection: "row", flexWrap: "wrap", width: 40, gap: 4 },
-  logoDot: { width: 17, height: 17, borderRadius: 9 },
+  logoMark: { flexDirection: "row", flexWrap: "wrap", width: 44, gap: 6 },
+  logoDot: { width: 19, height: 19, borderRadius: 10, alignItems: "center", justifyContent: "center", shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  logoCore: { width: 8, height: 8, borderRadius: 4, opacity: 0.9 },
+  logoShine: { position: "absolute", top: 3, left: 4, width: 6, height: 4, borderRadius: 3, backgroundColor: "#FFFFFFCC" },
   levelBadge: { borderRadius: 12, borderWidth: 1, borderColor: "#FFFFFF66", backgroundColor: "#FFFFFF22", paddingHorizontal: 12, paddingVertical: 8 },
   levelBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
   hero: { flex: 1, justifyContent: "center", paddingBottom: 20 },
