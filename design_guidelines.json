@@ -1,0 +1,52 @@
+{
+  "app_name": "Color Tap Challenge",
+  "app_type": "mobile_web_app",
+  "emotional_tone": "vibrant energetic focused",
+  "typography": {
+    "headings": {
+      "font_family": "Plus Jakarta Sans, sans-serif",
+      "weights": ["800", "900"],
+      "letter_spacing": "tracking-tight"
+    },
+    "body": {
+      "font_family": "Plus Jakarta Sans, sans-serif",
+      "weights": ["500", "650"],
+      "letter_spacing": "tracking-normal"
+    }
+  },
+  "colors": {
+    "background": "#0F1117",
+    "card_background": "#1A1D26",
+    "primary": "#6366F1",
+    "accent_red": "#EF4444",
+    "accent_blue": "#3B82F6",
+    "accent_green": "#10B981",
+    "accent_yellow": "#F59E0B",
+    "accent_purple": "#8B5CF6",
+    "text_main": "#F8FAFC",
+    "text_muted": "#94A3B8"
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-xl bg-[#1A1D26]/80 border border-white/10",
+    "shadows": "shadow-[0_8px_32px_rgba(0,0,0,0.37)]",
+    "glow": "drop-shadow-[0_0_15px_rgba(99,102,241,0.5)]"
+  },
+  "components": [
+    "HomeScreen",
+    "GamePlayScreen",
+    "LevelTransitionModal",
+    "GameOverScreen",
+    "SettingsModal",
+    "SoundVibrationManager"
+  ],
+  "image_urls": {
+    "ambient_bg": "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwyfHxjb2xvcmZ1bCUyMGFic3RyYWN0JTIwbmVvbiUyMGdyYWRpZW50JTIwc2hhcGVzfGVufDB8fHx8MTc4NjQ1NzM3MHww&ixlib=rb-4.1.0&q=85"
+  },
+  "universal_guidelines": [
+    "Every interactive element MUST include a data-testid attribute",
+    "No transparent backgrounds on overlays or headers without blur",
+    "Mobile-first touch targets with generous padding (min 44px)",
+    "Local storage for best score and settings",
+    "Sound and vibration toggles fully respected in gameplay"
+  ]
+}
