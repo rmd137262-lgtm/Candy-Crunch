@@ -28,6 +28,8 @@ Create only Level 1 of an original offline Match-3 puzzle game. Players swap adj
 - Added 20-move accounting for valid and invalid adjacent swaps.
 - Added 500-point progress bar, Level Complete screen, Game Over screen, and Retry reset.
 - Verified TypeScript, ESLint, Expo preview, 49-cell board, valid scoring swap, 20-move exhaustion, completion at 505 points, and Retry.
+- Fixed rapid mobile tap race in `handleCell` by making selected cell, board, score, and moves refs authoritative before React state updates.
+- Reverified first-tap selection, rapid adjacent swap, 3+ match clearing/refill, score 0→60, moves 20→19, and 49-cell board integrity (2026-08-11).
 
 ## Prioritized backlog
 - P0: None for the requested Level 1 MVP.

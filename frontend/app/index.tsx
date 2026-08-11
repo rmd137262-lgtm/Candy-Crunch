@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 type Screen = "home" | "game" | "complete" | "over";
@@ -95,25 +95,40 @@ export default function Index() {
   const [score, setScore] = useState(0);
   const [moves, setMoves] = useState(STARTING_MOVES);
   const [lastGain, setLastGain] = useState(0);
+  const boardRef = useRef(board);
+  const selectedRef = useRef<number | null>(null);
+  const scoreRef = useRef(0);
+  const movesRef = useRef(STARTING_MOVES);
 
-  const startGame = () => { setBoard(createBoard()); setScore(0); setMoves(STARTING_MOVES); setSelected(null); setLastGain(0); setScreen("game"); };
+  const startGame = () => {
+    const freshBoard = createBoard();
+    boardRef.current = freshBoard;
+    selectedRef.current = null;
+    scoreRef.current = 0;
+    movesRef.current = STARTING_MOVES;
+    setBoard(freshBoard); setScore(0); setMoves(STARTING_MOVES); setSelected(null); setLastGain(0); setScreen("game");
+  };
 
   const handleCell = (index: number) => {
     if (screen !== "game") return;
-    if (selected === null) { setSelected(index); return; }
-    if (selected === index) { setSelected(null); return; }
-    if (!areNeighbors(selected, index)) { setSelected(index); return; }
-    const swapped = [...board]; [swapped[selected], swapped[index]] = [swapped[index], swapped[selected]];
+    const currentSelected = selectedRef.current;
+    if (currentSelected === null) { selectedRef.current = index; setSelected(index); return; }
+    if (currentSelected === index) { selectedRef.current = null; setSelected(null); return; }
+    if (!areNeighbors(currentSelected, index)) { selectedRef.current = index; setSelected(index); return; }
+    const currentBoard = boardRef.current;
+    const swapped = [...currentBoard]; [swapped[currentSelected], swapped[index]] = [swapped[index], swapped[currentSelected]];
     const matches = findMatches(swapped);
     if (matches.size === 0) {
-      const nextMoves = moves - 1;
+      const nextMoves = movesRef.current - 1;
+      movesRef.current = nextMoves; selectedRef.current = null;
       setMoves(nextMoves); setSelected(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       if (nextMoves <= 0) setScreen("over");
       return;
     }
     const result = resolveBoard(swapped);
-    const nextScore = score + result.gained; const nextMoves = moves - 1;
+    const nextScore = scoreRef.current + result.gained; const nextMoves = movesRef.current - 1;
+    boardRef.current = result.board; scoreRef.current = nextScore; movesRef.current = nextMoves; selectedRef.current = null;
     setBoard(result.board); setScore(nextScore); setMoves(nextMoves); setSelected(null); setLastGain(result.gained);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (nextScore >= TARGET) setScreen("complete"); else if (nextMoves <= 0) setScreen("over");
