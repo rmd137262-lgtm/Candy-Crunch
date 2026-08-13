@@ -1,4 +1,4 @@
-name: Build Candy Crunch APK
+name: Build Candy Crunch AAB
 
 on:
   workflow_dispatch:
@@ -26,9 +26,19 @@ jobs:
         working-directory: frontend
         run: npm install
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Install Expo CLI
+        run: npm install -g expo-cli
 
-      - name: Build Android APK
+      - name: Generate Android project
         working-directory: frontend
-        run: eas build --platform android --profile preview --non-interactive
+        run: npx expo prebuild --platform android --non-interactive
+
+      - name: Build AAB
+        working-directory: frontend/android
+        run: ./gradlew bundleRelease
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Candy-Crunch-AAB
+          path: frontend/android/app/build/outputs/bundle/release/app-release.aab
