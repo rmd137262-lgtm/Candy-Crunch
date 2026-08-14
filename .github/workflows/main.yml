@@ -21,16 +21,13 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-          - name: Enable Corepack
-  run: corepack enable
-          
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
-  working-directory: frontend
-  run: yarn install --frozen-lockfile
-
-      - name: Install Expo CLI
-        run: npm install -g expo-cli
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
 
       - name: Generate Android project
         working-directory: frontend
