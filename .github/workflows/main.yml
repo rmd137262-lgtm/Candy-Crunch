@@ -23,8 +23,8 @@ jobs:
           java-version: 17
 
       - name: Install dependencies
-        working-directory: frontend
-        run: npm install
+  working-directory: frontend
+  run: yarn install --frozen-lockfile
 
       - name: Install Expo CLI
         run: npm install -g expo-cli
