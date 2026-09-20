@@ -15,19 +15,22 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install Dependencies
-        working-directory: frontend
-        run: npm install
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build Android Release APK
-        working-directory: frontend/android
+      - name: Build with Gradle
         run: |
+          if [ -d "frontend/android" ]; then
+            cd frontend/android
+          elif [ -d "android" ]; then
+            cd android
+          else
+            cd frontend && npx expo run:android --no-build-cache || true
+            cd android || cd frontend/android
+          fi
           chmod +x gradlew
           ./gradlew assembleRelease
 
@@ -35,5 +38,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: game-apk
-          path: frontend/android/app/build/outputs/apk/release/*.apk
+          path: "**/build/outputs/apk/release/*.apk"
           
