@@ -7,13 +7,15 @@
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.emergent.colortapperv.hbv3zs"
     },
     "android": {
       "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
         "VIBRATE"
       ],
       "adaptiveIcon": {
@@ -31,14 +33,13 @@
     "plugins": [
       "expo-router",
       [
-  "expo-build-properties",
-  {
-    "android": {
-    "kotlinVersion": "2.2.20"
-
-    }
-  }
-],
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.2.20"
+          }
+        }
+      ],
       [
         "expo-splash-screen",
         {
