@@ -10,10 +10,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -21,22 +21,23 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build with Gradle
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Generate Android project
+        working-directory: frontend
+        run: npx expo prebuild --platform android
+
+      - name: Build APK
+        working-directory: frontend/android
         run: |
-          if [ -d "frontend/android" ]; then
-            cd frontend/android
-          elif [ -d "android" ]; then
-            cd android
-          else
-            cd frontend && npx expo run:android --no-build-cache || true
-            cd android || cd frontend/android
-          fi
           chmod +x gradlew
           ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: game-apk
-          path: "**/build/outputs/apk/release/*.apk"
+          name: Candy-Crunch-APK
+          path: frontend/android/app/build/outputs/apk/release/*.apk
           
