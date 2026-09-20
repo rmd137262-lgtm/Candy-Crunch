@@ -16,6 +16,7 @@ jobs:
           node-version: 18
 
       - name: Install Dependencies
+        working-directory: frontend
         run: npm install
 
       - name: Setup Java
@@ -25,8 +26,8 @@ jobs:
           java-version: '17'
 
       - name: Build Android Release APK
+        working-directory: frontend/android
         run: |
-          cd android
           chmod +x gradlew
           ./gradlew assembleRelease
 
@@ -34,5 +35,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: game-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: frontend/android/app/build/outputs/apk/release/*.apk
           
