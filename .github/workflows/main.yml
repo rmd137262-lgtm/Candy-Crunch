@@ -25,15 +25,13 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      - name: Export Bundle and Assets
+        working-directory: frontend
+        run: npx expo export --platform android
+
       - name: Prebuild Android
         working-directory: frontend
         run: npx expo prebuild --platform android --clean
-
-      - name: Bundle Offline JavaScript and Assets
-        working-directory: frontend
-        run: |
-          mkdir -p android/app/src/main/assets
-          npx expo export:embed --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res/
 
       - name: Build Release APK
         working-directory: frontend/android
