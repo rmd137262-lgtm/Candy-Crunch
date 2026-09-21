@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "Candy Crunch",
@@ -62,5 +63,9 @@
     "experiments": {
       "typedRoutes": true
     }
+  },
+  "react-native-google-mobile-ads": {
+    "android_app_id": "ca-app-pub-8747629647202579~4823880981",
+    "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
   }
 }
