@@ -1,44 +1,43 @@
-// AdMob helper for native builds (base implementation used on iOS/Android;
-// `ads.web.ts` overrides this on web). Ads are NATIVE-ONLY and are disabled in
-// Expo Go (the native module is not bundled there). The interstitial uses a
-// Google TEST unit for now — replace with a real interstitial unit before
-// release. All calls are guarded so the game never crashes when ads are off.
-
+// AdMob helper for native builds
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import { Platform } from "react-native";
+import mobileAds, { InterstitialAd, AdEventType, TestIds } from "react-native-google-mobile-ads";
 
-// Expo Go ships as StoreClient and does NOT contain the AdMob native module.
 export const adsEnabled = Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
 
 const INTERSTITIAL_ANDROID = "ca-app-pub-8747629647202579/4045985930";
 
-let interstitial: { load: () => void; show: () => void } | null = null;
+let interstitial: any = null;
 let loaded = false;
 
 export async function initAds() {
   if (!adsEnabled) return;
   try {
-    const Ads = await import("react-native-google-mobile-ads");
-    await Ads.default().initialize();
-    // TEST ad in development to protect the account; real unit in production.
+    await mobileAds().initialize();
+    
     const interstitialId = __DEV__
-      ? Ads.TestIds.INTERSTITIAL
-      : Platform.select({ android: INTERSTITIAL_ANDROID, default: Ads.TestIds.INTERSTITIAL });
-    interstitial = Ads.InterstitialAd.createForAdRequest(interstitialId as string, {
+      ? TestIds.INTERSTITIAL
+      : Platform.select({ android: INTERSTITIAL_ANDROID, default: TestIds.INTERSTITIAL });
+
+    interstitial = InterstitialAd.createForAdRequest(interstitialId as string, {
       requestNonPersonalizedAdsOnly: true,
     });
-    interstitial.addAdEventListener(Ads.AdEventType.LOADED, () => {
+
+    interstitial.addAdEventListener(AdEventType.LOADED, () => {
       loaded = true;
     });
-    interstitial.addAdEventListener(Ads.AdEventType.CLOSED, () => {
+    interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       loaded = false;
-      interstitial?.load();
+      try {
+        interstitial?.load();
+      } catch (e) {}
     });
-    interstitial.addAdEventListener(Ads.AdEventType.ERROR, () => {
+    interstitial.addAdEventListener(AdEventType.ERROR, () => {
       loaded = false;
     });
+
     interstitial.load();
-  } catch {
+  } catch (err) {
     interstitial = null;
   }
 }
@@ -50,7 +49,7 @@ export function showGameOverAd() {
       loaded = false;
       interstitial.show();
     }
-  } catch {
+  } catch (e) {
     // never block the game-over flow on an ad failure
   }
 }
