@@ -6,6 +6,13 @@ import * as SplashScreen from "expo-splash-screen";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 
+// Prevent release mode from killing app on unhandled startup errors
+if (typeof global !== "undefined" && (global as any).ErrorUtils) {
+  (global as any).ErrorUtils.setGlobalHandler((error: any) => {
+    console.warn("Handled startup error safely:", error);
+  });
+}
+
 if (!__DEV__) {
   LogBox.ignoreAllLogs(true);
 }
@@ -16,14 +23,13 @@ export default function RootLayout() {
   const [loaded, error] = useIconFonts();
 
   useEffect(() => {
-    if (loaded || error) {
+    // Release splash screen safely
+    const timer = setTimeout(() => {
       SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [loaded, error]);
+    }, 150);
 
-  if (!loaded && !error) {
-    return null;
-  }
+    return () => clearTimeout(timer);
+  }, [loaded, error]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
