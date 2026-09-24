@@ -5,7 +5,7 @@ import mobileAds, { InterstitialAd, AdEventType, TestIds } from "react-native-go
 
 export const adsEnabled = Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
 
-const INTERSTITIAL_ANDROID = "ca-app-pub-8747629647202579/8007408485";
+const INTERSTITIAL_ANDROID = "ca-app-pub-3940256099942544/1033173712";
 
 let interstitial: any = null;
 let loaded = false;
