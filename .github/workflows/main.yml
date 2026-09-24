@@ -27,7 +27,9 @@ jobs:
         run: npm install -g eas-cli
 
       - name: Build APK
-        run: eas build --platform android --profile preview --non-interactive
+        run: |
+          npx eas init --account rmd137262 --non-interactive || true
+          npx eas build --platform android --profile preview --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           
