@@ -5,6 +5,7 @@
   "scripts": {
     "preinstall": "./scripts/cmd-guard.js --preinstall",
     "start": "expo start",
+    "replit": "expo start --web --port 5000 --host lan",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
