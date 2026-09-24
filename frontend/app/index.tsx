@@ -172,7 +172,7 @@ export default function Index() {
   useEffect(() => {
     initSfx();
     initAds();
-    storage.getItem("candy_sound_on", true).then((value) => {
+    storage.getItem<boolean>("candy_sound_on", true).then((value) => {
       const on = value !== false;
       setSoundOn(on);
       setSfxMuted(!on);

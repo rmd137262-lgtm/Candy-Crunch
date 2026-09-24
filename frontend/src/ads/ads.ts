@@ -30,14 +30,14 @@ export async function initAds() {
       loaded = false;
       try {
         interstitial?.load();
-      } catch (e) {}
+      } catch {}
     });
     interstitial.addAdEventListener(AdEventType.ERROR, () => {
       loaded = false;
     });
 
     interstitial.load();
-  } catch (err) {
+  } catch {
     interstitial = null;
   }
 }
@@ -49,7 +49,7 @@ export function showGameOverAd() {
       loaded = false;
       interstitial.show();
     }
-  } catch (e) {
+  } catch {
     // never block the game-over flow on an ad failure
   }
 }
