@@ -6,6 +6,8 @@
     "preinstall": "./scripts/cmd-guard.js --preinstall",
     "start": "expo start",
     "replit": "expo start --web --port 5000 --host lan",
+    "build:android:apk": "npx eas-cli build --platform android --profile preview",
+    "build:android:production": "npx eas-cli build --platform android --profile production",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
