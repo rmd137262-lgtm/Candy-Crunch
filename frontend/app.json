@@ -23,7 +23,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.colortapperv.hbv3zs"
+      "package": "com.rashiddigitalstudio.candycrunch"
     },
     "web": {
       "bundler": "metro",
