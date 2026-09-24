@@ -17,18 +17,16 @@ if (!__DEV__) {
   LogBox.ignoreAllLogs(true);
 }
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
-
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
 
   useEffect(() => {
-    // Release splash screen safely
-    const timer = setTimeout(() => {
+    // Hide after the font loader settles. Do not keep the native splash
+    // locked at module scope, where a startup import failure could leave it
+    // visible forever.
+    if (loaded || error) {
       SplashScreen.hideAsync().catch(() => {});
-    }, 150);
-
-    return () => clearTimeout(timer);
+    }
   }, [loaded, error]);
 
   return (
