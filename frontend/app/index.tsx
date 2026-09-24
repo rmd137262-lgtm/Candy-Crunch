@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
 import { storage } from "@/src/utils/storage";
@@ -36,14 +36,21 @@ const SWAP_MS = 170;
 const POP_MS = 200;
 const FALL_MS = 320;
 
-// Original candy palette (deep base + light gloss core). No copyrighted assets.
-const PIECES = [
-  { name: "Cherry", color: "#F8384E", light: "#FF9AA6" },
-  { name: "Orange", color: "#FF8A2B", light: "#FFC48A" },
-  { name: "Lemon", color: "#FFC107", light: "#FFE585" },
-  { name: "Grape", color: "#B15CFF", light: "#DCB6FF" },
-  { name: "Berry", color: "#2FC1FF", light: "#9FE4FF" },
-  { name: "Apple", color: "#28C76F", light: "#8DE9B4" },
+const BIRDS = [
+  { name: "Red bird", color: "#F8384E", light: "#FF9AA6" },
+  { name: "Orange bird", color: "#FF8A2B", light: "#FFC48A" },
+  { name: "Yellow bird", color: "#FFC107", light: "#FFE585" },
+  { name: "Purple bird", color: "#B15CFF", light: "#DCB6FF" },
+  { name: "Blue bird", color: "#2FC1FF", light: "#9FE4FF" },
+  { name: "Green bird", color: "#28C76F", light: "#8DE9B4" },
+];
+const BIRD_IMAGES = [
+  require("../assets/images/birds/red.png"),
+  require("../assets/images/birds/orange.png"),
+  require("../assets/images/birds/yellow.png"),
+  require("../assets/images/birds/purple.png"),
+  require("../assets/images/birds/blue.png"),
+  require("../assets/images/birds/green.png"),
 ];
 
 const idx = (row: number, col: number) => row * SIZE + col;
@@ -113,7 +120,7 @@ function initPieces(): Piece[] {
   const types: number[] = [];
   for (let row = 0; row < SIZE; row += 1) {
     for (let col = 0; col < SIZE; col += 1) {
-      const choices = PIECES.map((_, type) => type).filter((type) => {
+      const choices = BIRDS.map((_, type) => type).filter((type) => {
         const left = col >= 2 ? types[idx(row, col - 1)] === type && types[idx(row, col - 2)] === type : false;
         const up = row >= 2 ? types[idx(row - 1, col)] === type && types[idx(row - 2, col)] === type : false;
         return !left && !up;
@@ -143,7 +150,7 @@ function collapse(survivors: Piece[]): Piece[] {
     }
     while (row >= 0) {
       PIECE_ID += 1;
-      next.push({ id: PIECE_ID, type: Math.floor(Math.random() * PIECES.length), row, col, spawn: true, falling: true, fromRow: row - SIZE });
+      next.push({ id: PIECE_ID, type: Math.floor(Math.random() * BIRDS.length), row, col, spawn: true, falling: true, fromRow: row - SIZE });
       row -= 1;
     }
   }
@@ -172,7 +179,7 @@ export default function Index() {
   useEffect(() => {
     initSfx();
     initAds();
-    storage.getItem<boolean>("candy_sound_on", true).then((value) => {
+    storage.getItem<boolean>("bird_sound_on", true).then((value) => {
       const on = value !== false;
       setSoundOn(on);
       setSfxMuted(!on);
@@ -201,7 +208,7 @@ export default function Index() {
     const next = !soundOn;
     setSoundOn(next);
     setSfxMuted(!next);
-    storage.setItem("candy_sound_on", next);
+    storage.setItem("bird_sound_on", next);
     if (next) playSfx("swap");
   };
 
@@ -304,7 +311,7 @@ export default function Index() {
       playSfx(cascades >= 2 ? "combo" : "match");
       Haptics.impactAsync(cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
 
-      // pop the matched candies
+      // Matched birds fly away before the board collapses.
       work = work.map((p) => (matches.has(idx(p.row, p.col)) ? { ...p, clearing: true } : p));
       commit(work);
       await wait(POP_MS);
@@ -371,13 +378,16 @@ export default function Index() {
   return <Game pieces={pieces} selected={selected} score={score} moves={moves} popups={popups} combo={combo} hint={hint} soundOn={soundOn} onCell={handleCell} onSwipe={applyMove} onToggleSound={toggleSound} />;
 }
 
-function Candy({ piece, selected, hinted, onCell }: { piece: Piece; selected: boolean; hinted: boolean; onCell: (index: number) => void }) {
-  const palette = PIECES[piece.type];
+function Bird({ piece, selected, hinted, onCell }: { piece: Piece; selected: boolean; hinted: boolean; onCell: (index: number) => void }) {
+  const palette = BIRDS[piece.type];
   const x = useSharedValue(piece.col * STEP);
   const y = useSharedValue((piece.spawn ? (piece.fromRow ?? piece.row) : piece.row) * STEP);
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
   const glow = useSharedValue(0);
+  const flightX = useSharedValue(0);
+  const flightY = useSharedValue(0);
+  const flightRotation = useSharedValue(0);
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -393,10 +403,14 @@ function Candy({ piece, selected, hinted, onCell }: { piece: Piece; selected: bo
 
   useEffect(() => {
     if (piece.clearing) {
-      scale.value = withTiming(0, { duration: POP_MS, easing: Easing.in(Easing.quad) });
-      opacity.value = withTiming(0, { duration: POP_MS });
+      const direction = piece.id % 2 === 0 ? 1 : -1;
+      flightX.value = withTiming(direction * (105 + (piece.id % 3) * 24), { duration: POP_MS + 80, easing: Easing.out(Easing.cubic) });
+      flightY.value = withTiming(-(74 + (piece.id % 4) * 15), { duration: POP_MS + 80, easing: Easing.out(Easing.cubic) });
+      flightRotation.value = withTiming(direction * (18 + (piece.id % 3) * 12), { duration: POP_MS + 80, easing: Easing.out(Easing.quad) });
+      scale.value = withTiming(0.72, { duration: POP_MS + 80, easing: Easing.out(Easing.quad) });
+      opacity.value = withTiming(0, { duration: POP_MS + 80 });
     }
-  }, [piece.clearing, scale, opacity]);
+  }, [piece.clearing, scale, opacity, flightRotation, flightX, flightY, piece.id]);
 
   useEffect(() => {
     if (mounted.current) return;
@@ -414,20 +428,24 @@ function Candy({ piece, selected, hinted, onCell }: { piece: Piece; selected: bo
   }, [hinted, glow]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
+    transform: [
+      { translateX: x.value + flightX.value },
+      { translateY: y.value + flightY.value },
+      { rotate: `${flightRotation.value}deg` },
+      { scale: scale.value },
+    ],
     opacity: opacity.value,
   }));
   const glowStyle = useAnimatedStyle(() => ({ opacity: glow.value }));
 
   return (
-    <Animated.View style={[styles.candyAbs, animatedStyle]}>
+    <Animated.View style={[styles.birdAbs, animatedStyle]}>
       <Pressable
         testID={`cell-${idx(piece.row, piece.col)}`}
         onPress={() => onCell(idx(piece.row, piece.col))}
         style={[styles.cell, { backgroundColor: palette.color, shadowColor: palette.color }, selected && styles.cellSelected]}
       >
-        <View style={[styles.candyCore, { backgroundColor: palette.light }]} />
-        <View style={styles.candyShine} />
+        <Image source={BIRD_IMAGES[piece.type]} resizeMode="contain" style={styles.birdImage} />
         <Animated.View pointerEvents="none" style={[styles.hintRing, glowStyle]} />
       </Pressable>
     </Animated.View>
@@ -544,7 +562,7 @@ function Game({
           <GestureDetector gesture={pan}>
             <View style={styles.board}>
               {pieces.map((piece) => (
-                <Candy key={piece.id} piece={piece} selected={selected === idx(piece.row, piece.col)} hinted={!!hint && (hint.a === idx(piece.row, piece.col) || hint.b === idx(piece.row, piece.col))} onCell={onCell} />
+                <Bird key={piece.id} piece={piece} selected={selected === idx(piece.row, piece.col)} hinted={!!hint && (hint.a === idx(piece.row, piece.col) || hint.b === idx(piece.row, piece.col))} onCell={onCell} />
               ))}
             </View>
           </GestureDetector>
@@ -565,7 +583,7 @@ function Game({
             <View style={styles.helperIcon}>
               <Ionicons name="swap-horizontal" size={18} color="#FFFFFF" />
             </View>
-            <Text style={styles.helperText}>SWIPE A CANDY TO SWAP</Text>
+            <Text style={styles.helperText}>SWIPE A BIRD TO SWAP</Text>
           </View>
         )}
 
@@ -583,10 +601,9 @@ function Home({ onPlay }: { onPlay: () => void }) {
       <LinearGradient colors={["#7A3FF2", "#E056A0"]} style={styles.container}>
         <View style={styles.logoRow}>
           <View style={styles.logoMark}>
-            {PIECES.slice(0, 4).map((piece) => (
+            {BIRDS.slice(0, 4).map((piece, index) => (
               <View key={piece.name} style={[styles.logoDot, { backgroundColor: piece.color, shadowColor: piece.color }]}>
-                <View style={[styles.logoCore, { backgroundColor: piece.light }]} />
-                <View style={styles.logoShine} />
+                <Image source={BIRD_IMAGES[index]} resizeMode="contain" style={styles.logoBird} />
               </View>
             ))}
           </View>
@@ -597,12 +614,12 @@ function Home({ onPlay }: { onPlay: () => void }) {
 
         <View style={styles.hero}>
           <Text style={styles.kicker}>MATCH • CLEAR • COMBO</Text>
-          <Text style={styles.title}>CANDY<Text style={styles.titleAccent}>.</Text>{`\n`}CRUNCH</Text>
-          <Text style={styles.subtitle}>Match three sweets.{`\n`}Chase juicy combos.</Text>
+          <Text style={styles.title}>BIRD<Text style={styles.titleAccent}>.</Text>{`\n`}BLITZ</Text>
+          <Text style={styles.subtitle}>Match three birds.{`\n`}Watch them fly.</Text>
           <View style={styles.miniBoard}>
             {[0, 1, 2, 3, 4, 5, 0, 2, 4].map((type, i) => (
-              <View key={i} style={[styles.miniPiece, { backgroundColor: PIECES[type].color }]}>
-                <View style={[styles.miniCore, { backgroundColor: PIECES[type].light }]} />
+              <View key={i} style={[styles.miniPiece, { backgroundColor: BIRDS[type].color }]}>
+                <Image source={BIRD_IMAGES[type]} resizeMode="contain" style={styles.miniBird} />
               </View>
             ))}
           </View>
@@ -677,8 +694,7 @@ const styles = StyleSheet.create({
   logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   logoMark: { flexDirection: "row", flexWrap: "wrap", width: 44, gap: 6 },
   logoDot: { width: 19, height: 19, borderRadius: 10, alignItems: "center", justifyContent: "center", shadowOpacity: 0.5, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  logoCore: { width: 8, height: 8, borderRadius: 4, opacity: 0.9 },
-  logoShine: { position: "absolute", top: 3, left: 4, width: 6, height: 4, borderRadius: 3, backgroundColor: "#FFFFFFCC" },
+  logoBird: { width: 28, height: 28 },
   levelBadge: { borderRadius: 12, borderWidth: 1, borderColor: "#FFFFFF66", backgroundColor: "#FFFFFF22", paddingHorizontal: 12, paddingVertical: 8 },
   levelBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
   hero: { flex: 1, justifyContent: "center", paddingBottom: 20 },
@@ -688,7 +704,7 @@ const styles = StyleSheet.create({
   subtitle: { color: "#FFFFFFDD", fontSize: 18, lineHeight: 27, marginTop: 22 },
   miniBoard: { flexDirection: "row", flexWrap: "wrap", width: 128, gap: 7, marginTop: 32, transform: [{ rotate: "-7deg" }] },
   miniPiece: { width: 35, height: 35, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  miniCore: { width: 15, height: 15, borderRadius: 8 },
+  miniBird: { width: 42, height: 42 },
   goalCard: { flexDirection: "row", alignItems: "center", gap: 13, padding: 18, backgroundColor: "#FFFFFF1A", borderRadius: 20, borderWidth: 1, borderColor: "#FFFFFF33", marginBottom: 15 },
   statLabel: { color: "#FFFFFFCC", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
   goalValue: { color: "#FFFFFF", fontSize: 19, fontWeight: "900", marginTop: 3 },
@@ -711,11 +727,10 @@ const styles = StyleSheet.create({
   boardShell: { alignSelf: "center", backgroundColor: "#FFFFFF1F", padding: 7, borderRadius: 24, borderWidth: 1, borderColor: "#FFFFFF33", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 9 },
   board: { width: BOARD, height: BOARD, overflow: "hidden" },
   overlay: { position: "absolute", left: 7, top: 7, width: BOARD, height: BOARD },
-  candyAbs: { position: "absolute", top: 0, left: 0, width: CELL, height: CELL },
+  birdAbs: { position: "absolute", top: 0, left: 0, width: CELL, height: CELL, zIndex: 2 },
   cell: { width: CELL, height: CELL, borderRadius: 22, alignItems: "center", justifyContent: "center", shadowOpacity: 0.4, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   cellSelected: { borderWidth: 3, borderColor: "#FFFFFF" },
-  candyCore: { width: 20, height: 20, borderRadius: 10, opacity: 0.9 },
-  candyShine: { position: "absolute", top: 8, left: 9, width: 13, height: 8, borderRadius: 6, backgroundColor: "#FFFFFFB0" },
+  birdImage: { width: 56, height: 56 },
   hintRing: { position: "absolute", top: -3, left: -3, right: -3, bottom: -3, borderRadius: 24, borderWidth: 3, borderColor: "#FFFFFF" },
   centerGroup: { flexDirection: "row", alignItems: "center", gap: 8 },
   soundBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#FFFFFF22", borderWidth: 1, borderColor: "#FFFFFF66", alignItems: "center", justifyContent: "center" },

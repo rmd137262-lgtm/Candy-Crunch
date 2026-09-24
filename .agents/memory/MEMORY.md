@@ -1,0 +1,1 @@
+- [Bird game assets](bird-game-assets.md) — use transparent per-bird crops for the match board and keep the original source tiles unchanged.
