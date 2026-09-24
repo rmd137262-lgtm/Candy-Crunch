@@ -34,6 +34,7 @@ const BOARD = (SIZE - 1) * STEP + CELL; // 333
 
 const SWAP_MS = 170;
 const POP_MS = 200;
+const FLY_MS = 600;
 const FALL_MS = 320;
 
 const BIRDS = [
@@ -45,12 +46,12 @@ const BIRDS = [
   { name: "Green bird", color: "#28C76F", light: "#8DE9B4" },
 ];
 const BIRD_IMAGES = [
-  require("../assets/images/birds/red.png"),
-  require("../assets/images/birds/orange.png"),
-  require("../assets/images/birds/yellow.png"),
-  require("../assets/images/birds/purple.png"),
-  require("../assets/images/birds/blue.png"),
-  require("../assets/images/birds/green.png"),
+  require("../assets/images/birds/red-flying.png"),
+  require("../assets/images/birds/orange-flying.png"),
+  require("../assets/images/birds/yellow-flying.png"),
+  require("../assets/images/birds/purple-flying.png"),
+  require("../assets/images/birds/blue-flying.png"),
+  require("../assets/images/birds/green-flying.png"),
 ];
 
 const idx = (row: number, col: number) => row * SIZE + col;
@@ -314,9 +315,9 @@ export default function Index() {
       // Matched birds fly away before the board collapses.
       work = work.map((p) => (matches.has(idx(p.row, p.col)) ? { ...p, clearing: true } : p));
       commit(work);
-      await wait(POP_MS);
+      await wait(FLY_MS);
 
-      // drop survivors + spawn new candies
+      // Drop survivors and spawn new birds.
       work = collapse(work.filter((p) => !p.clearing));
       commit(work);
       await wait(FALL_MS);
@@ -372,9 +373,9 @@ export default function Index() {
 
   if (screen === "home") return <Home onPlay={startGame} />;
   if (screen === "complete")
-    return <Result title="LEVEL COMPLETE" eyebrow="SWEET VICTORY" score={score} message="Level 1 target smashed!" button="PLAY AGAIN" onPress={startGame} success />;
+    return <Result title="LEVEL COMPLETE" eyebrow="FLYING VICTORY" score={score} message="Level 1 target cleared!" button="PLAY AGAIN" onPress={startGame} success />;
   if (screen === "over")
-    return <Result title="GAME OVER" eyebrow="OUT OF MOVES" score={score} message="Line up more candies and beat 500." button="RETRY" onPress={startGame} />;
+    return <Result title="GAME OVER" eyebrow="OUT OF MOVES" score={score} message="Match more birds and beat 500." button="RETRY" onPress={startGame} />;
   return <Game pieces={pieces} selected={selected} score={score} moves={moves} popups={popups} combo={combo} hint={hint} soundOn={soundOn} onCell={handleCell} onSwipe={applyMove} onToggleSound={toggleSound} />;
 }
 
@@ -404,11 +405,11 @@ function Bird({ piece, selected, hinted, onCell }: { piece: Piece; selected: boo
   useEffect(() => {
     if (piece.clearing) {
       const direction = piece.id % 2 === 0 ? 1 : -1;
-      flightX.value = withTiming(direction * (105 + (piece.id % 3) * 24), { duration: POP_MS + 80, easing: Easing.out(Easing.cubic) });
-      flightY.value = withTiming(-(74 + (piece.id % 4) * 15), { duration: POP_MS + 80, easing: Easing.out(Easing.cubic) });
-      flightRotation.value = withTiming(direction * (18 + (piece.id % 3) * 12), { duration: POP_MS + 80, easing: Easing.out(Easing.quad) });
-      scale.value = withTiming(0.72, { duration: POP_MS + 80, easing: Easing.out(Easing.quad) });
-      opacity.value = withTiming(0, { duration: POP_MS + 80 });
+      flightX.value = withTiming(direction * (220 + (piece.id % 3) * 28), { duration: FLY_MS, easing: Easing.out(Easing.cubic) });
+      flightY.value = withTiming(-(145 + (piece.id % 4) * 18), { duration: FLY_MS, easing: Easing.out(Easing.cubic) });
+      flightRotation.value = withTiming(direction * (18 + (piece.id % 3) * 12), { duration: FLY_MS, easing: Easing.out(Easing.quad) });
+      scale.value = withTiming(0.86, { duration: FLY_MS, easing: Easing.out(Easing.quad) });
+      opacity.value = withTiming(0, { duration: FLY_MS });
     }
   }, [piece.clearing, scale, opacity, flightRotation, flightX, flightY, piece.id]);
 
