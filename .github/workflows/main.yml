@@ -19,8 +19,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -29,7 +27,7 @@ jobs:
           java-version: '17'
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm install
 
       - name: Install EAS CLI
         run: npm install -g eas-cli
