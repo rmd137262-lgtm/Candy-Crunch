@@ -6,10 +6,13 @@ The Replit preview runs the Expo web version:
 
 ```bash
 cd frontend
+npm ci
 yarn replit
 ```
 
-The `replit` script starts Expo on `0.0.0.0:5000` for the Replit web preview.
+`npm ci` installs the dependencies from `frontend/package-lock.json` (only needed
+after a fresh import or dependency changes). The configured **Start application**
+workflow runs `cd frontend && yarn replit` and serves Expo on port 5000.
 
 ## Project structure
 
