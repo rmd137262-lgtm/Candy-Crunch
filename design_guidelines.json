@@ -1,0 +1,138 @@
+{
+  "app_name": "Color Tap Challenge",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A bouncy, tactile, and instantly readable casual mobile game that feels juicy and highly responsive.",
+  "color": {
+    "surface": "#FDFCF8",
+    "onSurface": "#1C1C1E",
+    "surfaceSecondary": "#F4F1EA",
+    "onSurfaceSecondary": "#3A3A3C",
+    "surfaceTertiary": "#E8E4D9",
+    "onSurfaceTertiary": "#5C5C5E",
+    "surfaceInverse": "#2B2D42",
+    "onSurfaceInverse": "#FDFCF8",
+    "brand": "#00A86B",
+    "brandPrimary": "#00A86B",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#FFC300",
+    "onBrandSecondary": "#1C1C1E",
+    "brandTertiary": "#D6F5E8",
+    "onBrandTertiary": "#005C3A",
+    "success": "#00A86B",
+    "onSuccess": "#FFFFFF",
+    "warning": "#FFC300",
+    "onWarning": "#1C1C1E",
+    "error": "#EF233C",
+    "onError": "#FFFFFF",
+    "border": "#E8E4D9",
+    "borderStrong": "#CFCAC0",
+    "divider": "#E8E4D9",
+    "targetRed": "#EF233C",
+    "targetGreen": "#00A86B",
+    "targetYellow": "#FFC300",
+    "targetBlack": "#2B2D42"
+  },
+  "typography": {
+    "displayFontFamily": "Fredoka",
+    "textFontFamily": "Nunito",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 48
+    }
+  },
+  "spacing": {
+    "rule": "Generous tactile spacing. Elements should feel like physical objects separated by clear air. Use xl and 2xl for major layout blocks.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "2",
+  "navigation": "stack_only",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [
+      "Use solid, opaque surfaces to maintain the tactile/playful mood.",
+      "Keep overlays solid with a semi-transparent dark backdrop instead of blur."
+    ],
+    "dont's": [
+      "Avoid heavy glass or blur, which clashes with the grounded, chunky, and tactile 2D nature of the game UI."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "Entry point: Start the game, view best score, and access quick settings.",
+      "states": {
+        "loading": "Centered brand-colored activity indicator.",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Center-aligned vertical stack. Top: Game Title ('Color Tap Challenge' using large Fredoka font in brand color). Middle: Oversized PLAY button (pill-shaped, brandPrimary background) and Best Score chip below it. Bottom right (or lower middle): Settings icon (Sound/Vibration toggles). Background can use a very subtle pattern or flat surface color."
+    },
+    {
+      "name": "Gameplay",
+      "purpose": "Core loop: Display instruction, show targets, process reaction taps, update HUD.",
+      "states": {
+        "loading": "N/A",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Vertical-first thumb-friendly layout. Top Area (HUD): Row containing Level badge, Score, and 3 Heart icons for lives. Below HUD: A horizontal decreasing timer bar. Center Area: Large instruction text (e.g., 'TAP RED'). Bottom Area: A 2x2 grid of oversized circular or pill-shaped color targets. Use `targetRed`, `targetGreen`, `targetYellow`, and `targetBlack` for the targets. Keep the targets in the lower half of the screen for easy thumb access."
+    },
+    {
+      "name": "GameOver",
+      "purpose": "Show results when lives reach 0 and allow restarting.",
+      "states": {
+        "loading": "N/A",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Overlay or distinct screen. Top: 'GAME OVER' title and a 3D minimal trophy image. Middle: Final Score (large) and Best Score (secondary). Bottom: 'PLAY AGAIN' CTA button pinned above the safe area."
+    }
+  ],
+  "images": {
+    "game_over_trophy": {
+      "url": "https://images.pexels.com/photos/7267589/pexels-photo-7267589.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Minimal gold and silver medals on white podiums"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the 'Tactile / Playful' personality. Do not use any blue, purple, or indigo shades anywhere (strictly banned). Use the predefined target colors (Red, Green, Yellow, Black).",
+    "Typography MUST cap at 500 weight. Use size (e.g., 3xl) to create hierarchy for HUD and instructions, never bold weights.",
+    "Implement the Stroop effect logic for later levels: The instruction text might say 'GREEN' but the text color is rendered in `targetRed`. The user must tap the color corresponding to the WORD ('GREEN'), not the ink.",
+    "Interaction Feedback: Every tap on a color target MUST include haptic feedback (impactLight for correct, notificationError for wrong) and an animated press scale (0.93 with an overshoot spring).",
+    "On correct tap: Increase score, subtly flash the target, reset timer.",
+    "On wrong tap: Shake the screen slightly (using react-native-reanimated), flash the target error color, remove one life.",
+    "Level Transitions: Show a large 'LEVEL X' overlay that fades in, slightly scales up, and fades out quickly over the Gameplay screen without a hard navigation transition.",
+    "Timer Bar: Use a smooth reanimated width transition for the countdown timer. If timer hits zero, it counts as a wrong tap.",
+    "Ensure large touch targets (minimum 64x64 for color targets, ideally larger filling the 2x2 grid).",
+    "Persist the 'Best Score' and user settings (Sound/Vibration) locally using AsyncStorage."
+  ]
+}
