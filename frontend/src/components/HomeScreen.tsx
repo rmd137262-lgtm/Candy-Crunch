@@ -77,10 +77,8 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
       {/* 2. MAIN BODY (MAP OR SHOP) */}
       {activeTab === "map" ? (
         <ImageBackground
-        source={{ uri: "https://picsum.photos/800/1600" }}
-          
-          
-          
+  source={require('./map_bg.png.png')}
+    
           style={styles.mapBackground}
           resizeMode="cover"
         >
