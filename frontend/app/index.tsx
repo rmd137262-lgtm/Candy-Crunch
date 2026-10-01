@@ -9,6 +9,7 @@ import { storage } from "@/src/utils/storage";
 import { initSfx, playSfx, setSfxMuted } from "@/src/utils/sfx";
 import { initAds, showGameOverAd } from "@/src/ads/ads";
 import GameBanner from "@/src/components/GameBanner";
+import HomeScreen from "@/src/components/HomeScreen";
 import Animated, {
   Easing,
   Extrapolation,
@@ -1022,7 +1023,7 @@ function Game({
               <ScorePopup key={popup.id} x={popup.x} y={popup.y} label={popup.label} />
             ))}
           </View>
-          <BigBirdSweep eventId={bigBirdEvent} source={require("../assets/images/birds/eagle-flying.png")} />
+          
         </View>
 
         {combo >= 2 ? (
@@ -1083,52 +1084,9 @@ function Game({
 }
 
 function Home({ onPlay }: { onPlay: () => void }) {
-  return (
-    <SafeAreaView style={styles.safe}>
-      <LinearGradient colors={["#7A3FF2", "#E056A0"]} style={styles.container}>
-        <View style={styles.logoRow}>
-          <View style={styles.logoMark}>
-            {BIRDS.slice(0, 4).map((piece, index) => (
-              <View key={piece.name} style={[styles.logoDot, { backgroundColor: piece.color, shadowColor: piece.color }]}>
-                <Image source={BIRD_IMAGES[index]} resizeMode="contain" style={styles.logoBird} />
-              </View>
-            ))}
-          </View>
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelBadgeText}>LEVEL 01</Text>
-          </View>
-        </View>
-
-        <View style={styles.hero}>
-          <Text style={styles.kicker}>MATCH • CLEAR • COMBO</Text>
-          <Text style={styles.title}>BIRD<Text style={styles.titleAccent}>.</Text>{`\n`}BLITZ</Text>
-          <Text style={styles.subtitle}>Match three birds.{`\n`}Watch them fly.</Text>
-          <View style={styles.miniBoard}>
-            {[0, 1, 2, 3, 4, 5, 0, 2, 4].map((type, i) => (
-              <View key={i} style={[styles.miniPiece, { backgroundColor: BIRDS[type].color }]}>
-                <Image source={BIRD_IMAGES[type]} resizeMode="contain" style={styles.miniBird} />
-              </View>
-            ))}
-          </View>
-        </View>
-
-        <View>
-          <View style={styles.goalCard}>
-            <Ionicons name="flag" size={22} color="#FFE585" />
-            <View>
-              <Text style={styles.statLabel}>FOUR GOAL-BASED LEVELS</Text>
-              <Text style={styles.goalValue}>FOOD · FEATHERS · RESCUES</Text>
-            </View>
-          </View>
-          <Pressable testID="play-button" onPress={onPlay} style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}>
-            <Text style={styles.playText}>START LEVEL 1</Text>
-            <Ionicons name="arrow-forward" size={22} color="#5A1F8F" />
-          </Pressable>
-        </View>
-      </LinearGradient>
-    </SafeAreaView>
-  );
+  return <HomeScreen onPlay={onPlay} />;
 }
+
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#7A3FF2" },
