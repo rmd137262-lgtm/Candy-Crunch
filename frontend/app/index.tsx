@@ -16,17 +16,29 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
+  withSequence,
   withTiming,
   ZoomIn,
 } from "react-native-reanimated";
+import GoalBox from "@/src/components/game/GoalBox";
+import LevelModal from "@/src/components/game/LevelModal";
+import ShopModal from "@/src/components/game/ShopModal";
+import { BigBirdSweep, FoodFlight, type FoodFlightData, type LayoutPoint } from "@/src/components/game/GameEffects";
+import { createUnconfiguredShopState, type RevenueCatShopState, type ShopProductId } from "@/src/billing/shopCatalog";
+import { initializeRevenueCatShop, purchaseRevenueCatShopItem } from "@/src/billing/revenuecat";
+import { EMPTY_GOAL_PROGRESS, isLevelGoalComplete, LEVELS, type GoalProgress, type LevelConfig } from "@/src/game/levels";
 
-type Screen = "home" | "game" | "complete" | "over";
-type Piece = { id: number; type: number; row: number; col: number; clearing?: boolean; spawn?: boolean; falling?: boolean; fromRow?: number };
+type Screen = "home" | "game";
+type LevelModalKind = "levelComplete" | "allComplete" | null;
+type Piece = { id: number; type: number; row: number; col: number; clearing?: boolean; spawn?: boolean; falling?: boolean; fromRow?: number; special?: "feather"; trapped?: boolean };
 type Popup = { id: number; x: number; y: number; label: string };
 
 const SIZE = 7;
-const TARGET = 500;
-const STARTING_MOVES = 20;
+const STARTING_LIVES = 5;
+const EXTRA_MOVES = 5;
+const PROMO_EXTRA_MOVES = 10;
+const BOOSTERS_PER_PACK = 3;
+const UNLIMITED_LIVES_MS = 24 * 60 * 60 * 1000;
 const CELL = 45;
 const GAP = 3;
 const STEP = CELL + GAP; // 48
@@ -92,6 +104,61 @@ function findMatches(grid: (Piece | null)[]) {
   return matches;
 }
 
+function longestMatchingLine(grid: (Piece | null)[], matches: Set<number>) {
+  let longest: number[] = [];
+  const inspect = (cells: number[]) => {
+    let start = 0;
+    while (start < cells.length) {
+      const first = grid[cells[start]];
+      if (!first) {
+        start += 1;
+        continue;
+      }
+      let end = start + 1;
+      while (end < cells.length && grid[cells[end]]?.type === first.type) end += 1;
+      const run = cells.slice(start, end);
+      if (run.length >= 3 && run.some((cell) => matches.has(cell)) && run.length > longest.length) longest = run;
+      start = end;
+    }
+  };
+  for (let row = 0; row < SIZE; row += 1) inspect(Array.from({ length: SIZE }, (_, col) => idx(row, col)));
+  for (let col = 0; col < SIZE; col += 1) inspect(Array.from({ length: SIZE }, (_, row) => idx(row, col)));
+  return longest;
+}
+
+function rowAndColumnBlast(center: number) {
+  const row = Math.floor(center / SIZE);
+  const col = center % SIZE;
+  const cells = new Set<number>();
+  for (let i = 0; i < SIZE; i += 1) {
+    cells.add(idx(row, i));
+    cells.add(idx(i, col));
+  }
+  return cells;
+}
+
+function addEagleBlast(cells: Set<number>, center: number) {
+  const row = Math.floor(center / SIZE);
+  const col = center % SIZE;
+  for (let r = Math.max(0, row - 1); r <= Math.min(SIZE - 1, row + 1); r += 1) {
+    for (let c = Math.max(0, col - 1); c <= Math.min(SIZE - 1, col + 1); c += 1) {
+      cells.add(idx(r, c));
+    }
+  }
+  return cells;
+}
+
+function positionsNearClearCells(pieceIndex: number, cleared: Set<number>) {
+  const row = Math.floor(pieceIndex / SIZE);
+  const col = pieceIndex % SIZE;
+  for (const clearedIndex of cleared) {
+    const clearedRow = Math.floor(clearedIndex / SIZE);
+    const clearedCol = clearedIndex % SIZE;
+    if (Math.abs(row - clearedRow) + Math.abs(col - clearedCol) <= 1) return true;
+  }
+  return false;
+}
+
 // Returns a valid adjacent swap that would create a match, or null.
 function findValidSwap(pieces: Piece[]): { a: number; b: number } | null {
   const grid = gridFromPieces(pieces);
@@ -117,11 +184,12 @@ function findValidSwap(pieces: Piece[]): { a: number; b: number } | null {
 }
 
 let PIECE_ID = 1;
-function initPieces(): Piece[] {
+function initPieces(activeBirds = BIRDS.length, trappedCount = 0): Piece[] {
   const types: number[] = [];
+  const trapPositions = new Set([idx(1, 1), idx(1, 5), idx(3, 2), idx(3, 4), idx(5, 1), idx(5, 5)].slice(0, trappedCount));
   for (let row = 0; row < SIZE; row += 1) {
     for (let col = 0; col < SIZE; col += 1) {
-      const choices = BIRDS.map((_, type) => type).filter((type) => {
+      const choices = Array.from({ length: activeBirds }, (_, type) => type).filter((type) => {
         const left = col >= 2 ? types[idx(row, col - 1)] === type && types[idx(row, col - 2)] === type : false;
         const up = row >= 2 ? types[idx(row - 1, col)] === type && types[idx(row - 2, col)] === type : false;
         return !left && !up;
@@ -133,14 +201,15 @@ function initPieces(): Piece[] {
   for (let row = 0; row < SIZE; row += 1) {
     for (let col = 0; col < SIZE; col += 1) {
       PIECE_ID += 1;
-      pieces.push({ id: PIECE_ID, type: types[idx(row, col)], row, col });
+      const index = idx(row, col);
+      pieces.push({ id: PIECE_ID, type: types[index], row, col, trapped: trapPositions.has(index) });
     }
   }
   return pieces;
 }
 
 // Drop survivors to the bottom of each column and spawn new candies above.
-function collapse(survivors: Piece[]): Piece[] {
+function collapse(survivors: Piece[], activeBirds = BIRDS.length): Piece[] {
   const next: Piece[] = [];
   for (let col = 0; col < SIZE; col += 1) {
     const colPieces = survivors.filter((p) => p.col === col).sort((a, b) => a.row - b.row);
@@ -151,7 +220,7 @@ function collapse(survivors: Piece[]): Piece[] {
     }
     while (row >= 0) {
       PIECE_ID += 1;
-      next.push({ id: PIECE_ID, type: Math.floor(Math.random() * BIRDS.length), row, col, spawn: true, falling: true, fromRow: row - SIZE });
+      next.push({ id: PIECE_ID, type: Math.floor(Math.random() * activeBirds), row, col, spawn: true, falling: true, fromRow: row - SIZE });
       row -= 1;
     }
   }
@@ -160,31 +229,77 @@ function collapse(survivors: Piece[]): Piece[] {
 
 export default function Index() {
   const [screen, setScreen] = useState<Screen>("home");
-  const [pieces, setPieces] = useState<Piece[]>(() => initPieces());
+  const [levelIndex, setLevelIndex] = useState(0);
+  const [pieces, setPieces] = useState<Piece[]>(() => initPieces(LEVELS[0].activeBirds, LEVELS[0].trappedTiles));
   const [selected, setSelected] = useState<number | null>(null);
   const [score, setScore] = useState(0);
-  const [moves, setMoves] = useState(STARTING_MOVES);
+  const [moves, setMoves] = useState(LEVELS[0].moves);
+  const [goalProgress, setGoalProgress] = useState<GoalProgress>({ ...EMPTY_GOAL_PROGRESS });
   const [popups, setPopups] = useState<Popup[]>([]);
   const [combo, setCombo] = useState(0);
   const [hint, setHint] = useState<{ a: number; b: number } | null>(null);
   const [soundOn, setSoundOn] = useState(true);
+  const [levelModal, setLevelModal] = useState<LevelModalKind>(null);
+  const [shopOpen, setShopOpenState] = useState(false);
+  const [shopState, setShopState] = useState<RevenueCatShopState>(() => createUnconfiguredShopState());
+  const [shopBusy, setShopBusy] = useState(false);
+  const [shopMessage, setShopMessage] = useState("");
+  const [promoRedeemed, setPromoRedeemed] = useState(false);
+  const [lives, setLives] = useState(STARTING_LIVES);
+  const [unlimitedLivesUntil, setUnlimitedLivesUntil] = useState(0);
+  const [boosterCount, setBoosterCountState] = useState(0);
+  const [adsRemoved, setAdsRemovedState] = useState(false);
+  const [bigBirdEvent, setBigBirdEvent] = useState(0);
+  const [foodFlights, setFoodFlights] = useState<FoodFlightData[]>([]);
+  const [goalFrame, setGoalFrame] = useState<LayoutPoint>({ x: 0, y: 0, width: 0, height: 0 });
+  const [boardFrame, setBoardFrame] = useState<LayoutPoint>({ x: 0, y: 0, width: 0, height: 0 });
 
   const piecesRef = useRef(pieces);
   const selectedRef = useRef<number | null>(null);
   const scoreRef = useRef(0);
-  const movesRef = useRef(STARTING_MOVES);
+  const movesRef = useRef(LEVELS[0].moves);
+  const levelIndexRef = useRef(0);
+  const goalProgressRef = useRef<GoalProgress>({ ...EMPTY_GOAL_PROGRESS });
+  const livesRef = useRef(STARTING_LIVES);
+  const unlimitedLivesUntilRef = useRef(0);
+  const boosterCountRef = useRef(0);
+  const adsRemovedRef = useRef(false);
+  const shopOpenRef = useRef(false);
+  const failureHandledRef = useRef(false);
   const processingRef = useRef(false);
   const popupId = useRef(0);
+  const flightId = useRef(0);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const level = LEVELS[levelIndex];
 
   useEffect(() => {
     initSfx();
     initAds();
-    storage.getItem<boolean>("bird_sound_on", true).then((value) => {
-      const on = value !== false;
+    Promise.all([
+      storage.getItem<boolean>("bird_sound_on", true),
+      storage.getItem<boolean>("shipaton_promo_redeemed", false),
+      storage.getItem<number>("candy_lives", STARTING_LIVES),
+      storage.getItem<number>("candy_unlimited_lives_until", 0),
+      storage.getItem<number>("candy_bagula_boosters", 0),
+      storage.getItem<boolean>("candy_ads_removed", false),
+    ]).then(([soundValue, promoValue, lifeValue, livesUntil, boosters, removed]) => {
+      const on = soundValue !== false;
       setSoundOn(on);
       setSfxMuted(!on);
+      const storedLives = Math.max(0, Math.min(STARTING_LIVES, Number(lifeValue) || 0));
+      livesRef.current = storedLives;
+      setLives(storedLives);
+      const storedUntil = Number(livesUntil) || 0;
+      unlimitedLivesUntilRef.current = storedUntil > Date.now() ? storedUntil : 0;
+      setUnlimitedLivesUntil(unlimitedLivesUntilRef.current);
+      const storedBoosters = Math.max(0, Number(boosters) || 0);
+      boosterCountRef.current = storedBoosters;
+      setBoosterCountState(storedBoosters);
+      adsRemovedRef.current = removed === true;
+      setAdsRemovedState(removed === true);
+      setPromoRedeemed(promoValue === true);
     });
+    initializeRevenueCatShop().then(setShopState);
     return () => {
       if (idleRef.current) clearTimeout(idleRef.current);
     };
@@ -195,11 +310,42 @@ export default function Index() {
     if (idleRef.current) clearTimeout(idleRef.current);
   };
 
+  const updateShopOpen = (visible: boolean) => {
+    shopOpenRef.current = visible;
+    setShopOpenState(visible);
+  };
+
+  const updateLives = (count: number) => {
+    const safeCount = Math.max(0, Math.min(STARTING_LIVES, count));
+    livesRef.current = safeCount;
+    setLives(safeCount);
+    storage.setItem("candy_lives", safeCount);
+  };
+
+  const updateBoosterCount = (count: number) => {
+    const safeCount = Math.max(0, count);
+    boosterCountRef.current = safeCount;
+    setBoosterCountState(safeCount);
+    storage.setItem("candy_bagula_boosters", safeCount);
+  };
+
+  const updateAdsRemoved = (removed: boolean) => {
+    adsRemovedRef.current = removed;
+    setAdsRemovedState(removed);
+    storage.setItem("candy_ads_removed", removed);
+  };
+
+  const updateUnlimitedLives = (until: number) => {
+    unlimitedLivesUntilRef.current = until;
+    setUnlimitedLivesUntil(until);
+    storage.setItem("candy_unlimited_lives_until", until);
+  };
+
   const scheduleHint = () => {
     if (idleRef.current) clearTimeout(idleRef.current);
     idleRef.current = setTimeout(() => {
-      if (processingRef.current) return;
-      if (movesRef.current <= 0 || scoreRef.current >= TARGET) return;
+      if (processingRef.current || shopOpenRef.current || movesRef.current <= 0) return;
+      if (isLevelGoalComplete(LEVELS[levelIndexRef.current], goalProgressRef.current)) return;
       const move = findValidSwap(piecesRef.current);
       if (move) setHint(move);
     }, 4000);
@@ -213,30 +359,50 @@ export default function Index() {
     if (next) playSfx("swap");
   };
 
+  const openShop = () => {
+    clearHint();
+    setShopMessage("");
+    updateShopOpen(true);
+  };
+
   const commit = (next: Piece[]) => {
     piecesRef.current = next;
     setPieces(next);
   };
 
-  const startGame = () => {
-    const fresh = initPieces();
+  const startLevel = (nextLevelIndex: number) => {
+    const safeIndex = Math.max(0, Math.min(LEVELS.length - 1, nextLevelIndex));
+    const config = LEVELS[safeIndex];
+    levelIndexRef.current = safeIndex;
+    goalProgressRef.current = { ...EMPTY_GOAL_PROGRESS };
+    failureHandledRef.current = false;
+    const fresh = initPieces(config.activeBirds, config.trappedTiles);
     piecesRef.current = fresh;
     selectedRef.current = null;
     scoreRef.current = 0;
-    movesRef.current = STARTING_MOVES;
+    movesRef.current = config.moves;
     processingRef.current = false;
     setPieces(fresh);
+    setLevelIndex(safeIndex);
     setScore(0);
-    setMoves(STARTING_MOVES);
+    setMoves(config.moves);
+    setGoalProgress({ ...EMPTY_GOAL_PROGRESS });
     setSelected(null);
     setPopups([]);
     setCombo(0);
     setHint(null);
+    setBigBirdEvent(0);
+    setLevelModal(null);
+    setShopMessage("");
+    updateShopOpen(false);
     setScreen("game");
     scheduleHint();
   };
 
+  const startGame = () => startLevel(0);
+
   const spawnPopup = (indices: number[], points: number) => {
+    if (indices.length === 0) return;
     const rows = indices.map((i) => Math.floor(i / SIZE));
     const cols = indices.map((i) => i % SIZE);
     const avgRow = rows.reduce((a, b) => a + b, 0) / rows.length;
@@ -247,16 +413,150 @@ export default function Index() {
     setTimeout(() => setPopups((prev) => prev.filter((p) => p.id !== pop.id)), 950);
   };
 
+  const spawnFoodFlights = (indices: number[], count: number, icon: string) => {
+    if (count <= 0 || indices.length === 0) return;
+    const numberOfFlights = Math.min(3, count, indices.length);
+    const flights: FoodFlightData[] = Array.from({ length: numberOfFlights }, (_, index) => {
+      const cellIndex = indices[Math.floor((index * (indices.length - 1)) / Math.max(1, numberOfFlights - 1))];
+      flightId.current += 1;
+      return { id: flightId.current, index: cellIndex, icon };
+    });
+    setFoodFlights((previous) => [...previous, ...flights]);
+    setTimeout(() => {
+      const expiredIds = new Set(flights.map((flight) => flight.id));
+      setFoodFlights((previous) => previous.filter((flight) => !expiredIds.has(flight.id)));
+    }, 950);
+  };
+
   const pieceAt = (list: Piece[], index: number) =>
     list.find((p) => !p.clearing && idx(p.row, p.col) === index);
 
+  const applyGoalProgress = (food: number, boosters: number, trapped: number) => {
+    const next = {
+      food: goalProgressRef.current.food + food,
+      boosters: goalProgressRef.current.boosters + boosters,
+      trapped: goalProgressRef.current.trapped + trapped,
+    };
+    goalProgressRef.current = next;
+    setGoalProgress(next);
+    return next;
+  };
+
+  // Shared by regular matches and purchased Bagula blasts so both use the same
+  // clear → fly → collapse → refill pipeline.
+  const resolveBoard = async (startPieces: Piece[], startingBlast?: Set<number>, startsMega = false) => {
+    let work = startPieces;
+    let cascades = 0;
+    let pendingClear = startingBlast ?? null;
+    let pendingMega = startsMega;
+
+    while (true) {
+      const grid = gridFromPieces(work);
+      const forced = pendingClear;
+      let matches = forced ?? findMatches(grid);
+      if (matches.size === 0) break;
+
+      pendingClear = null;
+      cascades += 1;
+      let clearSet = new Set(matches);
+      let specialCellIndex: number | null = null;
+      let mega = pendingMega;
+      pendingMega = false;
+
+      if (!forced) {
+        const matchedSpecial = work.find((piece) => piece.special && matches.has(idx(piece.row, piece.col)));
+        if (matchedSpecial) {
+          const center = idx(matchedSpecial.row, matchedSpecial.col);
+          clearSet = new Set([...matches, ...rowAndColumnBlast(center)]);
+          mega = true;
+        } else {
+          const line = longestMatchingLine(grid, matches);
+          if (line.length >= 5) {
+            const center = line[Math.floor(line.length / 2)];
+            clearSet = addEagleBlast(new Set(matches), center);
+            mega = true;
+          } else if (line.length === 4) {
+            specialCellIndex = line[Math.floor(line.length / 2)];
+            clearSet.delete(specialCellIndex);
+          }
+        }
+      }
+
+      const clearedIndices = Array.from(clearSet).filter((index) => pieceAt(work, index));
+      if (clearedIndices.length === 0) break;
+      const trappedToFree = work.filter(
+        (piece) => piece.trapped && (clearSet.has(idx(piece.row, piece.col)) || positionsNearClearCells(idx(piece.row, piece.col), clearSet)),
+      );
+      const trappedIndices = new Set(trappedToFree.map((piece) => idx(piece.row, piece.col)));
+      const activeLevel = LEVELS[levelIndexRef.current];
+      const foodCollected = activeLevel.foodGoal ? clearedIndices.length : 0;
+      const boostersUnlocked = activeLevel.boosterGoal && (specialCellIndex !== null || mega) ? 1 : 0;
+      const trapsFreed = activeLevel.trappedGoal ? trappedToFree.length : 0;
+      applyGoalProgress(foodCollected, boostersUnlocked, trapsFreed);
+
+      const points = clearedIndices.length * 20 + (cascades - 1) * 25;
+      scoreRef.current += points;
+      setScore(scoreRef.current);
+      spawnPopup(clearedIndices, points);
+      const itemIcon = activeLevel.foodGoal?.icon ?? activeLevel.boosterGoal?.icon ?? "🌰";
+      spawnFoodFlights(clearedIndices, foodCollected || boostersUnlocked || trapsFreed, itemIcon);
+      playSfx(cascades >= 2 ? "combo" : "match");
+      playSfx(mega ? "blast" : "fly");
+      Haptics.impactAsync(mega || cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
+      if (mega) setBigBirdEvent((event) => event + 1);
+
+      work = work.map((piece) => {
+        const cellIndex = idx(piece.row, piece.col);
+        if (cellIndex === specialCellIndex) return { ...piece, special: "feather", trapped: false, clearing: false };
+        if (clearSet.has(cellIndex)) return { ...piece, clearing: true };
+        if (trappedIndices.has(cellIndex)) return { ...piece, trapped: false };
+        return piece;
+      });
+      commit(work);
+      await wait(FLY_MS);
+
+      work = collapse(work.filter((piece) => !piece.clearing), activeLevel.activeBirds);
+      commit(work);
+      await wait(FALL_MS);
+    }
+
+    return cascades;
+  };
+
+  const finishBoard = () => {
+    const activeIndex = levelIndexRef.current;
+    const activeLevel = LEVELS[activeIndex];
+    processingRef.current = false;
+    if (isLevelGoalComplete(activeLevel, goalProgressRef.current)) {
+      clearHint();
+      setLevelModal(activeIndex === LEVELS.length - 1 ? "allComplete" : "levelComplete");
+      playSfx("win");
+      if (activeIndex === LEVELS.length - 1 && !adsRemovedRef.current) showGameOverAd();
+      return;
+    }
+
+    if (movesRef.current <= 0) {
+      clearHint();
+      if (!failureHandledRef.current) {
+        if (unlimitedLivesUntilRef.current <= Date.now() && livesRef.current > 0) updateLives(livesRef.current - 1);
+        failureHandledRef.current = true;
+      }
+      playSfx("over");
+      if (!adsRemovedRef.current) showGameOverAd();
+      setShopMessage("");
+      updateShopOpen(true);
+      return;
+    }
+    scheduleHint();
+  };
+
   const applyMove = async (a: number, b: number) => {
-    if (processingRef.current || screen !== "game") return;
+    if (processingRef.current || screen !== "game" || shopOpenRef.current || levelModal || movesRef.current <= 0) return;
     if (!areNeighbors(a, b)) return;
     const list = piecesRef.current;
     const pa = pieceAt(list, a);
     const pb = pieceAt(list, b);
-    if (!pa || !pb) return;
+    if (!pa || !pb || pa.trapped || pb.trapped) return;
 
     processingRef.current = true;
     setSelected(null);
@@ -274,8 +574,11 @@ export default function Index() {
     Haptics.selectionAsync();
     await wait(SWAP_MS + 20);
 
-    // 2) No match? Slide back and burn a move.
-    if (findMatches(gridFromPieces(work)).size === 0) {
+    const specialAfterSwap = work.find((piece) => piece.special);
+    const specialBlast = specialAfterSwap ? rowAndColumnBlast(idx(specialAfterSwap.row, specialAfterSwap.col)) : undefined;
+
+    // Invalid swaps animate back and do not consume a move.
+    if (!specialBlast && findMatches(gridFromPieces(work)).size === 0) {
       work = work.map((p) => {
         if (p.id === pa.id) return { ...p, row: pa.row, col: pa.col };
         if (p.id === pb.id) return { ...p, row: pb.row, col: pb.col };
@@ -284,68 +587,26 @@ export default function Index() {
       commit(work);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       await wait(SWAP_MS + 20);
-      const nextMoves = movesRef.current - 1;
-      movesRef.current = nextMoves;
-      setMoves(nextMoves);
       processingRef.current = false;
-      if (nextMoves <= 0) {
-        playSfx("over");
-        showGameOverAd();
-        setScreen("over");
-      } else {
-        scheduleHint();
-      }
+      scheduleHint();
       return;
     }
 
-    // 3) Resolve cascades with pop + fall animations.
-    let cascades = 0;
-    while (true) {
-      const matches = findMatches(gridFromPieces(work));
-      if (matches.size === 0) break;
-      cascades += 1;
-      const indices = Array.from(matches);
-      const points = matches.size * 20 + (cascades - 1) * 25;
-      scoreRef.current += points;
-      setScore(scoreRef.current);
-      spawnPopup(indices, points);
-      playSfx(cascades >= 2 ? "combo" : "match");
-      Haptics.impactAsync(cascades >= 2 ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium);
-
-      // Matched birds fly away before the board collapses.
-      work = work.map((p) => (matches.has(idx(p.row, p.col)) ? { ...p, clearing: true } : p));
-      commit(work);
-      await wait(FLY_MS);
-
-      // Drop survivors and spawn new birds.
-      work = collapse(work.filter((p) => !p.clearing));
-      commit(work);
-      await wait(FALL_MS);
-    }
-
+    failureHandledRef.current = false;
     const nextMoves = movesRef.current - 1;
     movesRef.current = nextMoves;
     setMoves(nextMoves);
+    const cascades = await resolveBoard(work, specialBlast, Boolean(specialBlast));
     if (cascades >= 2) {
       setCombo(cascades);
       setTimeout(() => setCombo(0), 950);
     }
-    processingRef.current = false;
-    if (scoreRef.current >= TARGET) {
-      playSfx("win");
-      showGameOverAd();
-      setScreen("complete");
-    } else if (nextMoves <= 0) {
-      playSfx("over");
-      showGameOverAd();
-      setScreen("over");
-    } else {
-      scheduleHint();
-    }
+    finishBoard();
   };
 
   const handleCell = (index: number) => {
-    if (processingRef.current || screen !== "game") return;
+    if (processingRef.current || screen !== "game" || shopOpenRef.current || levelModal || movesRef.current <= 0) return;
+    if (pieceAt(piecesRef.current, index)?.trapped) return;
     clearHint();
     scheduleHint();
     const sel = selectedRef.current;
@@ -371,12 +632,125 @@ export default function Index() {
     applyMove(sel, index);
   };
 
+  const useBagulaBooster = async () => {
+    if (processingRef.current || boosterCountRef.current <= 0 || screen !== "game") return;
+    processingRef.current = true;
+    clearHint();
+    updateBoosterCount(boosterCountRef.current - 1);
+    updateShopOpen(false);
+    const blast = addEagleBlast(new Set<number>(), idx(Math.floor(SIZE / 2), Math.floor(SIZE / 2)));
+    await resolveBoard(piecesRef.current, blast, true);
+    finishBoard();
+  };
+
+  const buyShopItem = async (id: ShopProductId) => {
+    if (shopBusy) return;
+    setShopBusy(true);
+    setShopMessage("");
+    try {
+      await purchaseRevenueCatShopItem(id);
+      playSfx("win");
+      if (id === "extraMoves") {
+        const nextMoves = movesRef.current + EXTRA_MOVES;
+        movesRef.current = nextMoves;
+        setMoves(nextMoves);
+        updateShopOpen(false);
+        setShopMessage("Five moves added. Keep matching!");
+      } else if (id === "unlimitedLives") {
+        updateUnlimitedLives(Date.now() + UNLIMITED_LIVES_MS);
+        startLevel(levelIndexRef.current);
+      } else {
+        updateAdsRemoved(true);
+        updateBoosterCount(boosterCountRef.current + BOOSTERS_PER_PACK);
+        if (movesRef.current > 0) updateShopOpen(false);
+        setShopMessage("Ads removed and three Bagula blasts added.");
+      }
+    } catch (error) {
+      setShopMessage(error instanceof Error ? error.message : "Purchase could not be completed.");
+    } finally {
+      setShopBusy(false);
+    }
+  };
+
+  const redeemPromo = (code: string) => {
+    if (promoRedeemed) {
+      setShopMessage("This judge promo has already been redeemed on this device.");
+      return;
+    }
+    if (code.trim().toUpperCase() !== "SHIPATON2026") {
+      setShopMessage("That promo code is not valid.");
+      return;
+    }
+    setPromoRedeemed(true);
+    storage.setItem("shipaton_promo_redeemed", true);
+    const nextMoves = movesRef.current + PROMO_EXTRA_MOVES;
+    movesRef.current = nextMoves;
+    setMoves(nextMoves);
+    updateBoosterCount(boosterCountRef.current + BOOSTERS_PER_PACK);
+    failureHandledRef.current = true;
+    playSfx("win");
+    setShopMessage("Promo applied: 10 extra moves and three Bagula blasts added.");
+    updateShopOpen(false);
+  };
+
+  const tryAgain = () => {
+    const hasUnlimitedLives = unlimitedLivesUntilRef.current > Date.now();
+    if (livesRef.current <= 0 && !hasUnlimitedLives) {
+      setShopMessage("No lives left. Choose Unlimited Lives or use the judge promo.");
+      return;
+    }
+    startLevel(levelIndexRef.current);
+  };
+
+  const continueAfterLevel = () => {
+    if (levelModal === "allComplete") {
+      startGame();
+    } else {
+      startLevel(levelIndexRef.current + 1);
+    }
+  };
+
   if (screen === "home") return <Home onPlay={startGame} />;
-  if (screen === "complete")
-    return <Result title="LEVEL COMPLETE" eyebrow="FLYING VICTORY" score={score} message="Level 1 target cleared!" button="PLAY AGAIN" onPress={startGame} success />;
-  if (screen === "over")
-    return <Result title="GAME OVER" eyebrow="OUT OF MOVES" score={score} message="Match more birds and beat 500." button="RETRY" onPress={startGame} />;
-  return <Game pieces={pieces} selected={selected} score={score} moves={moves} popups={popups} combo={combo} hint={hint} soundOn={soundOn} onCell={handleCell} onSwipe={applyMove} onToggleSound={toggleSound} />;
+  return (
+    <Game
+      pieces={pieces}
+      selected={selected}
+      score={score}
+      moves={moves}
+      level={level}
+      progress={goalProgress}
+      lives={lives}
+      boosters={boosterCount}
+      popups={popups}
+      combo={combo}
+      hint={hint}
+      soundOn={soundOn}
+      adsRemoved={adsRemoved}
+      bigBirdEvent={bigBirdEvent}
+      foodFlights={foodFlights}
+      goalFrame={goalFrame}
+      boardFrame={boardFrame}
+      onGoalLayout={setGoalFrame}
+      onBoardLayout={setBoardFrame}
+      onCell={handleCell}
+      onSwipe={applyMove}
+      onToggleSound={toggleSound}
+      onOpenShop={openShop}
+      onCloseShop={() => updateShopOpen(false)}
+      onBuy={buyShopItem}
+      onRedeem={redeemPromo}
+      onUseBooster={useBagulaBooster}
+      onTryAgain={tryAgain}
+      shopOpen={shopOpen}
+      shopState={shopState}
+      shopBusy={shopBusy}
+      shopMessage={shopMessage}
+      promoRedeemed={promoRedeemed}
+      unlimitedLivesActive={unlimitedLivesUntil > Date.now()}
+      levelModal={levelModal}
+      onContinue={continueAfterLevel}
+    />
+  );
 }
 
 function Bird({ piece, selected, hinted, onCell }: { piece: Piece; selected: boolean; hinted: boolean; onCell: (index: number) => void }) {
@@ -444,10 +818,21 @@ function Bird({ piece, selected, hinted, onCell }: { piece: Piece; selected: boo
       <Pressable
         testID={`cell-${idx(piece.row, piece.col)}`}
         onPress={() => onCell(idx(piece.row, piece.col))}
-        style={[styles.cell, { backgroundColor: palette.color, shadowColor: palette.color }, selected && styles.cellSelected]}
+        style={[
+          styles.cell,
+          { backgroundColor: palette.color, shadowColor: palette.color },
+          selected && styles.cellSelected,
+          piece.trapped && styles.cellTrapped,
+        ]}
       >
         <Image source={BIRD_IMAGES[piece.type]} resizeMode="contain" style={styles.birdImage} />
         <Animated.View pointerEvents="none" style={[styles.hintRing, glowStyle]} />
+        {piece.special ? <Text pointerEvents="none" style={styles.featherBomb}>🪶</Text> : null}
+        {piece.trapped ? (
+          <View pointerEvents="none" style={styles.trapOverlay}>
+            <Text style={styles.trapLock}>🔒</Text>
+          </View>
+        ) : null}
       </Pressable>
     </Animated.View>
   );
@@ -477,25 +862,75 @@ function Game({
   selected,
   score,
   moves,
+  level,
+  progress,
+  lives,
+  boosters,
   popups,
   combo,
   hint,
   soundOn,
+  adsRemoved,
+  bigBirdEvent,
+  foodFlights,
+  goalFrame,
+  boardFrame,
+  onGoalLayout,
+  onBoardLayout,
   onCell,
   onSwipe,
   onToggleSound,
+  onOpenShop,
+  onCloseShop,
+  onBuy,
+  onRedeem,
+  onUseBooster,
+  onTryAgain,
+  shopOpen,
+  shopState,
+  shopBusy,
+  shopMessage,
+  promoRedeemed,
+  unlimitedLivesActive,
+  levelModal,
+  onContinue,
 }: {
   pieces: Piece[];
   selected: number | null;
   score: number;
   moves: number;
+  level: LevelConfig;
+  progress: GoalProgress;
+  lives: number;
+  boosters: number;
   popups: Popup[];
   combo: number;
   hint: { a: number; b: number } | null;
   soundOn: boolean;
+  adsRemoved: boolean;
+  bigBirdEvent: number;
+  foodFlights: FoodFlightData[];
+  goalFrame: LayoutPoint;
+  boardFrame: LayoutPoint;
+  onGoalLayout: (frame: LayoutPoint) => void;
+  onBoardLayout: (frame: LayoutPoint) => void;
   onCell: (index: number) => void;
   onSwipe: (from: number, to: number) => void;
   onToggleSound: () => void;
+  onOpenShop: () => void;
+  onCloseShop: () => void;
+  onBuy: (id: ShopProductId) => void;
+  onRedeem: (code: string) => void;
+  onUseBooster: () => void;
+  onTryAgain: () => void;
+  shopOpen: boolean;
+  shopState: RevenueCatShopState;
+  shopBusy: boolean;
+  shopMessage: string;
+  promoRedeemed: boolean;
+  unlimitedLivesActive: boolean;
+  levelModal: LevelModalKind;
+  onContinue: () => void;
 }) {
   const startRef = useRef<number | null>(null);
   const pan = useMemo(
@@ -532,34 +967,49 @@ function Game({
 
   return (
     <SafeAreaView style={styles.safe}>
-      <LinearGradient colors={["#7A3FF2", "#E056A0"]} style={styles.container}>
+      <LinearGradient colors={["#7A3FF2", "#E056A0"]} style={[styles.container, styles.gameContainer]}>
         <View style={styles.gameTop}>
           <View>
             <Text style={styles.statLabel}>SCORE</Text>
             <Text testID="score-value" style={styles.statValue}>{score}</Text>
+            <Text style={styles.lifeText}>♥ {lives} {unlimitedLivesActive ? "∞" : ""}</Text>
           </View>
           <View style={styles.centerGroup}>
             <View style={styles.levelPill}>
-              <Text style={styles.levelText}>LEVEL 1</Text>
+              <Text style={styles.levelText}>LEVEL {level.id}</Text>
             </View>
             <Pressable testID="sound-toggle" onPress={onToggleSound} style={styles.soundBtn}>
               <Ionicons name={soundOn ? "volume-high" : "volume-mute"} size={16} color="#FFFFFF" />
             </Pressable>
           </View>
-          <View style={styles.movesBox}>
-            <Text style={styles.statLabel}>MOVES</Text>
-            <Text testID="moves-value" style={styles.movesValue}>{moves}</Text>
+          <View style={styles.rightActions}>
+            <View style={styles.movesBox}>
+              <Text style={styles.statLabel}>MOVES</Text>
+              <Text testID="moves-value" style={styles.movesValue}>{moves}</Text>
+            </View>
+            <Pressable accessibilityLabel="Open shop" onPress={onOpenShop} style={styles.shopButton}>
+              <Ionicons name="bag-handle" size={17} color="#FFE585" />
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.goalLine}>
-          <Text style={styles.goalText}>TARGET <Text style={styles.goalStrong}>{TARGET}</Text></Text>
-          <View style={styles.goalTrack}>
-            <View style={[styles.goalFill, { width: `${Math.min(100, (score / TARGET) * 100)}%` }]} />
-          </View>
+        <View
+          onLayout={(event) => {
+            const { x, y, width, height } = event.nativeEvent.layout;
+            onGoalLayout({ x, y, width, height });
+          }}
+          style={styles.goalWrap}
+        >
+          <GoalBox level={level} progress={progress} />
         </View>
 
-        <View style={styles.boardShell}>
+        <View
+          onLayout={(event) => {
+            const { x, y, width, height } = event.nativeEvent.layout;
+            onBoardLayout({ x, y, width, height });
+          }}
+          style={styles.boardShell}
+        >
           <GestureDetector gesture={pan}>
             <View style={styles.board}>
               {pieces.map((piece) => (
@@ -572,6 +1022,7 @@ function Game({
               <ScorePopup key={popup.id} x={popup.x} y={popup.y} label={popup.label} />
             ))}
           </View>
+          <BigBirdSweep eventId={bigBirdEvent} source={require("../assets/images/birds/eagle-flying.png")} />
         </View>
 
         {combo >= 2 ? (
@@ -588,9 +1039,44 @@ function Game({
           </View>
         )}
 
-        <View style={styles.bannerArea}>
-          <GameBanner />
+        {boosters > 0 ? (
+          <Pressable onPress={onUseBooster} style={({ pressed }) => [styles.boosterPill, pressed && styles.pressed]}>
+            <Ionicons name="flash" size={15} color="#FFFFFF" />
+            <Text style={styles.boosterPillText}>BAGULA ×{boosters}</Text>
+            <Text style={styles.boosterHint}>{moves <= 0 ? "USE A BLAST" : "BLAST"}</Text>
+          </Pressable>
+        ) : null}
+
+        {!adsRemoved ? <View style={styles.bannerArea}><GameBanner /></View> : null}
+
+        <View pointerEvents="none" style={styles.flightLayer}>
+          {foodFlights.map((flight) => (
+            <FoodFlight key={flight.id} flight={flight} board={boardFrame} goal={goalFrame} />
+          ))}
         </View>
+
+        <ShopModal
+          visible={shopOpen}
+          outOfMoves={moves <= 0}
+          shop={shopState}
+          busy={shopBusy}
+          message={shopMessage}
+          promoRedeemed={promoRedeemed}
+          boosterCount={boosters}
+          unlimitedLivesActive={unlimitedLivesActive}
+          onBuy={onBuy}
+          onRedeem={onRedeem}
+          onUseBooster={onUseBooster}
+          onTryAgain={onTryAgain}
+          onClose={onCloseShop}
+        />
+        <LevelModal
+          visible={levelModal !== null}
+          finalLevel={levelModal === "allComplete"}
+          levelName={level.name}
+          score={score}
+          onContinue={onContinue}
+        />
       </LinearGradient>
     </SafeAreaView>
   );
@@ -630,58 +1116,15 @@ function Home({ onPlay }: { onPlay: () => void }) {
           <View style={styles.goalCard}>
             <Ionicons name="flag" size={22} color="#FFE585" />
             <View>
-              <Text style={styles.statLabel}>LEVEL 1 GOAL</Text>
-              <Text style={styles.goalValue}>500 POINTS</Text>
+              <Text style={styles.statLabel}>FOUR GOAL-BASED LEVELS</Text>
+              <Text style={styles.goalValue}>FOOD · FEATHERS · RESCUES</Text>
             </View>
           </View>
           <Pressable testID="play-button" onPress={onPlay} style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}>
-            <Text style={styles.playText}>PLAY LEVEL 1</Text>
+            <Text style={styles.playText}>START LEVEL 1</Text>
             <Ionicons name="arrow-forward" size={22} color="#5A1F8F" />
           </Pressable>
         </View>
-      </LinearGradient>
-    </SafeAreaView>
-  );
-}
-
-function Result({
-  title,
-  eyebrow,
-  score,
-  message,
-  button,
-  onPress,
-  success = false,
-}: {
-  title: string;
-  eyebrow: string;
-  score: number;
-  message: string;
-  button: string;
-  onPress: () => void;
-  success?: boolean;
-}) {
-  return (
-    <SafeAreaView style={styles.safe}>
-      <LinearGradient colors={success ? ["#28C76F", "#1BA6A0"] : ["#7A3FF2", "#E056A0"]} style={[styles.container, styles.center]}>
-        <View style={styles.resultIcon}>
-          <Ionicons name={success ? "trophy" : "refresh"} size={34} color="#FFE585" />
-        </View>
-        <Text style={styles.kicker}>{eyebrow}</Text>
-        <Text style={styles.resultTitle}>{title}</Text>
-        <View style={styles.resultCard}>
-          <Text style={styles.statLabel}>FINAL SCORE</Text>
-          <Text style={styles.finalScore}>{score}</Text>
-          <Text style={styles.resultMessage}>{message}</Text>
-        </View>
-        <Pressable
-          testID={button === "RETRY" ? "retry-button" : "play-again-button"}
-          onPress={onPress}
-          style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.playText}>{button}</Text>
-          <Ionicons name={button === "RETRY" ? "refresh" : "arrow-forward"} size={22} color="#5A1F8F" />
-        </Pressable>
       </LinearGradient>
     </SafeAreaView>
   );
