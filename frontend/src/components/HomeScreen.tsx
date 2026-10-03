@@ -39,12 +39,21 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
 
   const currentUnlocked = 2;
 
-  // Gentle wave curve for the road alignment
-  const getOffset = (idx: number) => {
-    const curve = [25, -20, -40, -15, 20, 40, 18, -18, -35, 0];
-    return curve[idx % curve.length];
+        const getOffset = (idx: number) => {
+    const roadCurve: Record<number, number> = {
+      9: -15,  // Level 1: Neeche center
+      8: 60,   // Level 2: Bakery ke bagal right
+      7: 90,   // Level 3: Right mod
+      6: 70,   // Level 4: Sweets ke samne
+      5: 10,   // Level 5: Center turn
+      4: -50,  // Level 6: Left mod
+      3: -80,  // Level 7: Pura left
+      2: -65,  // Level 8: Left turn upar
+      1: -30,  // Level 9: Center upar
+      0: 0,    // Level 10: Top road
+    };
+    return roadCurve[idx] !== undefined ? roadCurve[idx] : 0;
   };
-
   return (
     <SafeAreaView style={styles.safe}>
       {/* 1. TOP CANDY HEADER */}
@@ -77,7 +86,7 @@ export default function HomeScreen({ onPlay }: HomeScreenProps) {
       {/* 2. MAIN BODY (MAP OR SHOP) */}
       {activeTab === "map" ? (
         <ImageBackground
-  source={require('./map_bg.png.png')}
+  source={require('../../assets/images/map_bg.png')}
     
           style={styles.mapBackground}
           resizeMode="cover"

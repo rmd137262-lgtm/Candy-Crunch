@@ -1,8 +1,22 @@
-import { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withTiming } from "react-native-reanimated";
+import React, { useEffect } from "react";
+import { StyleSheet, Text, View, Image, ImageBackground } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 
 import type { GoalProgress, LevelConfig } from "@/src/game/levels";
+
+const GOAL_ICONS = {
+  food: require("../../../assets/images/goals/food_bowl.png"),
+  trapped: require("../../../assets/images/goals/cage_dome.png"),
+  booster: require("../../../assets/images/goals/nest_eggs.png"),
+};
+
+const HEADER_BG = require("../../../assets/images/goals/board_header.png");
 
 type GoalBoxProps = {
   level: LevelConfig;
@@ -11,43 +25,43 @@ type GoalBoxProps = {
 
 export default function GoalBox({ level, progress }: GoalBoxProps) {
   const pulse = useSharedValue(1);
+
   const rows = [
-    ...(level.foodGoal ? [{ ...level.foodGoal, value: progress.food }] : []),
-    ...(level.boosterGoal ? [{ ...level.boosterGoal, value: progress.boosters }] : []),
-    ...(level.trappedGoal ? [{ ...level.trappedGoal, value: progress.trapped }] : []),
+    ...(level.foodGoal ? [{ key: "food", target: level.foodGoal.target, value: progress.food, icon: GOAL_ICONS.food }] : []),
+    ...(level.boosterGoal ? [{ key: "booster", target: level.boosterGoal.target, value: progress.boosters, icon: GOAL_ICONS.booster }] : []),
+    ...(level.trappedGoal ? [{ key: "trapped", target: level.trappedGoal.target, value: progress.trapped, icon: GOAL_ICONS.trapped }] : []),
   ];
 
   useEffect(() => {
     pulse.value = withSequence(
-      withTiming(1.045, { duration: 120, easing: Easing.out(Easing.quad) }),
-      withTiming(1, { duration: 170, easing: Easing.out(Easing.quad) }),
+      withTiming(1.06, { duration: 120, easing: Easing.out(Easing.quad) }),
+      withTiming(1, { duration: 170, easing: Easing.out(Easing.quad) })
     );
   }, [progress.food, progress.boosters, progress.trapped, pulse]);
 
-  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
 
   return (
-    <Animated.View accessibilityLabel={`Level goal: ${level.name}`} style={[styles.box, animatedStyle]}>
-      <View style={styles.heading}>
+    <Animated.View style={[styles.box, animatedStyle]}>
+      <ImageBackground source={HEADER_BG} style={styles.headerBackground} imageStyle={styles.headerImage}>
         <Text style={styles.headingText}>LEVEL {level.id} GOAL</Text>
         <Text style={styles.levelName}>{level.name}</Text>
-      </View>
-      <View style={styles.goals}>
+      </ImageBackground>
+
+      <View style={styles.goalsContainer}>
         {rows.map((goal) => {
           const count = Math.min(goal.value, goal.target);
-          const ratio = Math.min(1, goal.value / goal.target);
           return (
-            <View key={goal.label} style={styles.goalRow}>
-              <View style={styles.iconBadge}>
-                <Text style={styles.icon}>{goal.icon}</Text>
+            <View key={goal.key} style={styles.goalRow}>
+              <View style={styles.iconWrapper}>
+                <Image source={goal.icon} style={styles.goalIcon} resizeMode="contain" />
               </View>
-              <Text numberOfLines={1} style={styles.goalLabel}>{goal.label}</Text>
-              <Text accessibilityLabel={`${count} of ${goal.target}`} style={styles.counter}>
-                {count} <Text style={styles.counterDivider}>/</Text> {goal.target}
+              <Text style={styles.counter}>
+                {count}
+                <Text style={styles.counterDivider}>/{goal.target}</Text>
               </Text>
-              <View style={styles.track}>
-                <View style={[styles.fill, { width: `${ratio * 100}%` }]} />
-              </View>
             </View>
           );
         })}
@@ -58,26 +72,69 @@ export default function GoalBox({ level, progress }: GoalBoxProps) {
 
 const styles = StyleSheet.create({
   box: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    shadowColor: "#311064",
-    shadowOpacity: 0.16,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 5,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 8,
   },
-  heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 7 },
-  headingText: { color: "#8756B9", fontSize: 9, fontWeight: "900", letterSpacing: 1.3 },
-  levelName: { color: "#9A7AAE", fontSize: 10, fontWeight: "800" },
-  goals: { gap: 6 },
-  goalRow: { minHeight: 31, flexDirection: "row", alignItems: "center", gap: 8 },
-  iconBadge: { width: 27, height: 27, borderRadius: 10, backgroundColor: "#FFF3C9", alignItems: "center", justifyContent: "center" },
-  icon: { fontSize: 17 },
-  goalLabel: { flex: 1, color: "#43265E", fontSize: 12, fontWeight: "800" },
-  counter: { color: "#5A2587", minWidth: 54, textAlign: "right", fontSize: 13, fontWeight: "900" },
-  counterDivider: { color: "#B9A6C6", fontWeight: "700" },
-  track: { width: 48, height: 7, overflow: "hidden", borderRadius: 5, backgroundColor: "#EEE6F5" },
-  fill: { height: "100%", borderRadius: 5, backgroundColor: "#FFC943" },
+  headerBackground: {
+    width: 220,
+    height: 48,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 4,
+  },
+  headerImage: {
+    resizeMode: "stretch",
+  },
+  headingText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+    textShadowColor: "rgba(0, 0, 0, 0.45)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  levelName: {
+    color: "#FFF275",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  goalsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 6,
+  },
+  goalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#D97706",
+  },
+  iconWrapper: {
+    width: 26,
+    height: 26,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 6,
+  },
+  goalIcon: {
+    width: 24,
+    height: 24,
+  },
+  counter: {
+    color: "#78350F",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  counterDivider: {
+    color: "#B45309",
+    fontWeight: "700",
+    fontSize: 13,
+  },
 });

@@ -2,6 +2,7 @@ modules = ["nodejs-20", "bash", "python-3.12"]
 
 [nix]
 channel = "stable-25_05"
+packages = ["psmisc"]
 
 [agent]
 expertMode = true
@@ -45,6 +46,10 @@ externalPort = 3001
 [[ports]]
 localPort = 5003
 externalPort = 3002
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
 
 [deployment]
 deploymentTarget = "cloudrun"
