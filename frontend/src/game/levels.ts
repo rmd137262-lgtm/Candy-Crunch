@@ -1,120 +1,88 @@
-export type GoalProgress = {
-  food: number;
-  boosters: number;
-  trapped: number;
-};
-
-export type LevelConfig = {
-  id: number;
-  name: string;
-  moves: number;
-  activeBirds: number;
-  foodGoal?: { label: string; icon: string; target: number };
-  boosterGoal?: { label: string; icon: string; target: number };
-  trappedGoal?: { label: string; icon: string; target: number };
-  trappedTiles: number;
-};
-
-export const LEVELS: LevelConfig[] = [
-  {
-    id: 1,
-    name: "First Feasts",
-    moves: 20,
-    activeBirds: 4,
-    foodGoal: { label: "Grains / Dana", icon: "🌾", target: 12 },
-    trappedTiles: 0,
-  },
-  {
-    id: 2,
-    name: "Berry Garden",
-    moves: 18,
-    activeBirds: 5,
-    foodGoal: { label: "Berries", icon: "🫐", target: 18 },
-    trappedTiles: 0,
-  },
-  {
-    id: 3,
-    name: "Bagula Bomb",
-    moves: 18,
-    activeBirds: 6,
-    boosterGoal: { label: "Make a Feather Bomb", icon: "🪶", target: 1 },
-    trappedTiles: 0,
-  },
-  {
-    id: 4,
-    name: "Rescue the Flock",
-    moves: 16,
-    activeBirds: 6,
-    foodGoal: { label: "Food Items", icon: "🌰", target: 25 },
-    trappedGoal: { label: "Free Trapped Birds", icon: "🔓", target: 5 },
-    trappedTiles: 6,
-  },
-  {
-    id: 5,
-    name: "Golden Nest",
-    moves: 15,
-    activeBirds: 6,
-    foodGoal: { label: "Golden Seeds", icon: "🌻", target: 30 },
-    boosterGoal: { label: "Super Boosters", icon: "⚡", target: 2 },
-    trappedTiles: 4,
-  },
-  {
-    id: 6,
-    name: "Cage Breaker",
-    moves: 15,
-    activeBirds: 6,
-    trappedGoal: { label: "Free Caged Birds", icon: "🔓", target: 8 },
-    trappedTiles: 8,
-  },
-  {
-    id: 7,
-    name: "Sky Party",
-    moves: 14,
-    activeBirds: 6,
-    foodGoal: { label: "Sweet Candies", icon: "🍬", target: 35 },
-    boosterGoal: { label: "Feather Blasts", icon: "🪶", target: 3 },
-    trappedTiles: 5,
-  },
-  {
-    id: 8,
-    name: "Stormy Flight",
-    moves: 13,
-    activeBirds: 6,
-    foodGoal: { label: "Nectar Drops", icon: "🍯", target: 40 },
-    trappedGoal: { label: "Save Allies", icon: "🔓", target: 10 },
-    trappedTiles: 10,
-  },
-  {
-    id: 9,
-    name: "Rainbow Wings",
-    moves: 12,
-    activeBirds: 6,
-    boosterGoal: { label: "Rainbow Combos", icon: "🌈", target: 4 },
-    foodGoal: { label: "Magic Seeds", icon: "✨", target: 30 },
-    trappedTiles: 6,
-  },
-  {
-    id: 10,
-    name: "Candy Crunch Champion",
-    moves: 12,
-    activeBirds: 6,
-    foodGoal: { label: "Crunch Treats", icon: "👑", target: 50 },
-    trappedGoal: { label: "Master Rescue", icon: "🔓", target: 12 },
-    boosterGoal: { label: "Mega Blasts", icon: "💥", target: 5 },
-    trappedTiles: 12,
-  },
-];
-
-export const EMPTY_GOAL_PROGRESS: GoalProgress = {
-  food: 0,
-  boosters: 0,
-  trapped: 0,
-};
-
-export function isLevelGoalComplete(level: LevelConfig, progress: GoalProgress) {
-  return (
-    (!level.foodGoal || progress.food >= level.foodGoal.target) &&
-    (!level.boosterGoal || progress.boosters >= level.boosterGoal.target) &&
-    (!level.trappedGoal || progress.trapped >= level.trappedGoal.target)
-  );
+export interface LevelTarget {
+  type: 'score' | 'clear_jelly' | 'break_wood' | 'rescue_bears' | 'collect_color';
+  count: number;
+  current?: number;
+  color?: string;
 }
+
+export interface LevelConfig {
+  id: number;
+  moves: number;
+  targetScore: number;
+  targets: LevelTarget[];
+  boardShape: {
+    rows: number;
+    cols: number;
+    blockedTiles?: [number, number][];
+  };
+  initialJelly?: [number, number][];
+  initialWood?: [number, number][];
+  initialBears?: [number, number][];
+}
+
+const generate50Levels = (): Record<number, LevelConfig> => {
+  const levels: Record<number, LevelConfig> = {};
+
+  for (let i = 1; i <= 50; i++) {
+    const isBoss = i % 10 === 0;
+    const isHard = i % 5 === 0 && !isBoss;
+
+    let targets: LevelTarget[] = [];
+    let initialWood: [number, number][] = [];
+    let initialJelly: [number, number][] = [];
+    let initialBears: [number, number][] = [];
+
+    // Progressive level variety
+    if (i <= 5) {
+      targets = [{ type: 'score', count: 1000 + i * 500 }];
+    } else if (i <= 15) {
+      const woodCount = Math.min(6 + (i - 5) * 2, 24);
+      targets = [{ type: 'break_wood', count: woodCount }];
+      for (let r = 2; r < 6; r++) {
+        for (let c = 2; c < 6; c++) {
+          if (initialWood.length < woodCount) initialWood.push([r, c]);
+        }
+      }
+    } else if (i <= 30) {
+      const jellyCount = Math.min(8 + (i - 15) * 2, 28);
+      targets = [
+        { type: 'clear_jelly', count: jellyCount },
+        { type: 'break_wood', count: 12 }
+      ];
+      for (let r = 1; r < 7; r++) {
+        for (let c = 1; c < 7; c++) {
+          if (initialJelly.length < jellyCount) initialJelly.push([r, c]);
+        }
+      }
+    } else {
+      // 31 to 50: Complex targets like Soda Bears & Combo clearance
+      const bearCount = 3 + Math.floor((i - 30) / 5);
+      targets = [
+        { type: 'rescue_bears', count: bearCount },
+        { type: 'clear_jelly', count: 16 }
+      ];
+      for (let b = 0; b < bearCount; b++) {
+        initialBears.push([3 + (b % 2), 3 + Math.floor(b / 2)]);
+      }
+    }
+
+    levels[i] = {
+      id: i,
+      moves: isBoss ? 20 : isHard ? 24 : Math.max(18, 32 - Math.floor(i / 3)),
+      targetScore: 2000 + i * 800,
+      targets,
+      boardShape: {
+        rows: 8,
+        cols: 8,
+        blockedTiles: i > 20 ? [[0, 0], [0, 7], [7, 0], [7, 7]] : []
+      },
+      initialWood,
+      initialJelly,
+      initialBears
+    };
+  }
+
+  return levels;
+};
+
+export const LEVELS_CONFIG = generate50Levels();
