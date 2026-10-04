@@ -1,18 +1,48 @@
-class WebSoundEngine {
-  private ctx: AudioContext | null = null;
-  private muted: boolean = false;
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 
-  private getContext(): AudioContext | null {
-    if (typeof window === 'undefined' || this.muted) return null;
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return null;
-    if (!this.ctx) {
-      this.ctx = new AudioCtx();
+type SoundName = 'music' | 'swap' | 'match' | 'combo' | 'win' | 'over';
+
+const soundSources: Record<SoundName, number> = {
+  music: require('../../assets/sounds/bgm_map.mp3'),
+  swap: require('../../assets/sounds/swap.wav'),
+  match: require('../../assets/sounds/match_pop.mp3'),
+  combo: require('../../assets/sounds/combo.wav'),
+  win: require('../../assets/sounds/win.wav'),
+  over: require('../../assets/sounds/over.wav'),
+};
+
+class GameSoundManager {
+  private players: Partial<Record<SoundName, AudioPlayer>> = {};
+  private muted = false;
+  private musicRequested = false;
+
+  private ensurePlayer(name: SoundName): AudioPlayer | null {
+    if (this.players[name]) return this.players[name]!;
+
+    try {
+      setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+      const player = createAudioPlayer(soundSources[name]);
+      player.volume = name === 'music' ? 0.34 : 0.72;
+      player.loop = name === 'music';
+      player.muted = this.muted;
+      this.players[name] = player;
+      return player;
+    } catch {
+      return null;
     }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+  }
+
+  private play(name: SoundName) {
+    if (this.muted) return;
+    const player = this.ensurePlayer(name);
+    if (!player) return;
+
+    try {
+      if (name === 'music' && player.playing) return;
+      player.seekTo(0).then(() => player.play()).catch(() => {});
+    } catch {
+      // Some browsers block audio until the player taps a control.
     }
-    return this.ctx;
   }
 
   getMuted(): boolean {
@@ -20,70 +50,50 @@ class WebSoundEngine {
   }
 
   toggleMute(): boolean {
-    this.muted = !this.muted;
+    this.setMuted(!this.muted);
     return this.muted;
   }
 
-  setMuted(m: boolean) {
-    this.muted = m;
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    Object.values(this.players).forEach((player) => {
+      if (player) player.muted = muted;
+    });
+    if (!muted && this.musicRequested) this.play('music');
+  }
+
+  playSwap() {
+    this.play('swap');
   }
 
   playPop() {
-    const ctx = this.getContext();
-    if (!ctx) return;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    const now = ctx.currentTime;
-    osc.frequency.setValueAtTime(450, now);
-    osc.frequency.exponentialRampToValueAtTime(800, now + 0.08);
-    gain.gain.setValueAtTime(0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.09);
+    this.play('match');
   }
 
   playBlast() {
-    const ctx = this.getContext();
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    [523.25, 659.25, 783.99].forEach((freq, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.04);
-      gain.gain.setValueAtTime(0.3, now + idx * 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.04);
-      osc.stop(now + 0.26);
-    });
+    this.play('combo');
   }
 
   playWin() {
-    const ctx = this.getContext();
-    if (!ctx) return;
-    const notes = [523.25, 659.25, 783.99, 1046.50];
-    const now = ctx.currentTime;
-    notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now + i * 0.1);
-      gain.gain.setValueAtTime(0.35, now + i * 0.1);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.3);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + i * 0.1);
-      osc.stop(now + i * 0.1 + 0.35);
-    });
+    this.play('win');
   }
 
-  playBGM() {}
-  stopBGM() {}
+  playOver() {
+    this.play('over');
+  }
+
+  playBGM() {
+    this.musicRequested = true;
+    this.play('music');
+  }
+
+  stopBGM() {
+    this.musicRequested = false;
+    const player = this.players.music;
+    if (!player) return;
+    player.pause();
+    player.seekTo(0).catch(() => {});
+  }
 }
 
-export const soundManager = new WebSoundEngine();
+export const soundManager = new GameSoundManager();

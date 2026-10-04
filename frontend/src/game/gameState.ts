@@ -37,9 +37,16 @@ export class GameStateManager {
 
   private loadState(): PlayerState {
     try {
-      const data = localStorage.getItem(STORAGE_KEY);
+      const data = typeof window !== 'undefined' ? window.localStorage?.getItem(STORAGE_KEY) : null;
       if (data) {
-        return { ...defaultState, ...JSON.parse(data) };
+        const saved = JSON.parse(data) as Partial<PlayerState>;
+        return {
+          ...defaultState,
+          ...saved,
+          highestUnlockedLevel: Math.max(1, Math.min(50, saved.highestUnlockedLevel ?? 1)),
+          stars: { ...defaultState.stars, ...(saved.stars ?? {}) },
+          boosters: { ...defaultState.boosters, ...(saved.boosters ?? {}) },
+        };
       }
     } catch (e) {
       console.warn('Storage read error:', e);
@@ -49,7 +56,9 @@ export class GameStateManager {
 
   public saveState() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      }
     } catch (e) {
       console.warn('Storage save error:', e);
     }
@@ -64,7 +73,13 @@ export class GameStateManager {
     if (levelId >= this.state.highestUnlockedLevel && levelId < 50) {
       this.state.highestUnlockedLevel = levelId + 1;
     }
+    this.state.currentLevel = Math.min(50, levelId + 1);
     this.state.coins += 25 * starsEarned;
+    this.saveState();
+  }
+
+  public loseLife() {
+    this.state.lives = Math.max(0, this.state.lives - 1);
     this.saveState();
   }
 
