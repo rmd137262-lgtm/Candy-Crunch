@@ -1,4 +1,5 @@
 run = "cd frontend && yarn replit"
+modules = ["nodejs-20", "bash", "python-3.12"]
 
 [deployment]
 run = ["sh", "-c", "cd frontend && yarn replit"]
@@ -6,3 +7,6 @@ run = ["sh", "-c", "cd frontend && yarn replit"]
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[nix]
+channel = "stable-25_05"
