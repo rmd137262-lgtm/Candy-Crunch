@@ -1,262 +1,179 @@
-import React, { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withRepeat, 
-  withTiming, 
-  withSequence,
-  Easing 
-} from 'react-native-reanimated';
+import React from 'react';
+import { View, StyleSheet, Text } from 'react-native';
 
-interface Props {
-  type: number;
+interface CandyProps {
+  color: string;
   size?: number;
-  isFlapping?: boolean;
 }
 
-const BIRDS = [
-  { body: '#E53935', chest: '#FF8A80', wing: '#B71C1C', beak: '#FFB300', mask: '#212121', crest: true },
-  { body: '#1E88E5', chest: '#BBDEFB', wing: '#0D47A1', beak: '#424242', mask: '#FFFFFF', crest: false },
-  { body: '#FDD835', chest: '#FFF9C4', wing: '#F57F17', beak: '#FB8C00', mask: '#FFF', crest: false },
-  { body: '#43A047', chest: '#C8E6C9', wing: '#1B5E20', beak: '#FFA000', mask: '#2E7D32', crest: false },
-  { body: '#8E24AA', chest: '#E1BEE7', wing: '#4A148C', beak: '#FFD54F', mask: '#F3E5F5', crest: false },
-];
+export const VectorBird: React.FC<CandyProps> = ({ color, size = 42 }) => {
+  const s = size;
 
-export const VectorBird: React.FC<Props> = ({ type, size = 44, isFlapping = false }) => {
-  const bird = BIRDS[type % BIRDS.length];
-  
-  // Animation values
-  const wingAngle = useSharedValue(0);
-  const bodyBob = useSharedValue(0);
-
-  useEffect(() => {
-    // 1. Idle Gentle Breathing (Har bird baithi hui thodi zinda lagegi)
-    bodyBob.value = withRepeat(
-      withSequence(
-        withTiming(-1.5, { duration: 600, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1.5, { duration: 600, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      true
-    );
-
-    // 2. Wing Flap (Pankh ki tezi)
-    if (isFlapping) {
-      wingAngle.value = withRepeat(
-        withSequence(
-          withTiming(-55, { duration: 65, easing: Easing.linear }),
-          withTiming(20, { duration: 65, easing: Easing.linear })
-        ),
-        -1,
-        true
-      );
-    } else {
-      wingAngle.value = withRepeat(
-        withSequence(
-          withTiming(-8, { duration: 400, easing: Easing.ease }),
-          withTiming(4, { duration: 400, easing: Easing.ease })
-        ),
-        -1,
-        true
-      );
-    }
-  }, [isFlapping]);
-
-  const animatedWingStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: isFlapping ? -4 : 0 },
-      { rotate: `${wingAngle.value}deg` }
-    ],
-  }));
-
-  const animatedBodyStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: bodyBob.value }],
-  }));
-
-  return (
-    <Animated.View style={[styles.root, { width: size, height: size }, animatedBodyStyle]}>
-      {/* Tail */}
-      <View style={[styles.tailFeather, { backgroundColor: bird.wing }]} />
-
-      {/* Crest */}
-      {bird.crest && <View style={[styles.crest, { backgroundColor: bird.body }]} />}
-
-      {/* Main Perched Body */}
-      <View style={[styles.bodyShape, { backgroundColor: bird.body }]}>
-        <View style={[styles.chestLayer, { backgroundColor: bird.chest }]} />
-        <View style={[styles.eyeMask, { backgroundColor: bird.mask }]} />
-        
-        {/* Eye */}
-        <View style={styles.eyeContainer}>
-          <View style={styles.pupil} />
-          <View style={styles.shine} />
+  // 1. RED HEART (Video Style Glossy Red Heart)
+  if (color === 'red') {
+    return (
+      <View style={[styles.center, { width: s, height: s }]}>
+        <View style={[styles.heartShape, { width: s * 0.82, height: s * 0.78 }]}>
+          <Text style={{ fontSize: s * 0.62, color: '#FF1744' }}>❤️</Text>
+          <View style={styles.topGlossSpot} />
         </View>
-
-        {/* Beak */}
-        <View style={[styles.beak, { borderLeftColor: bird.beak }]} />
       </View>
+    );
+  }
 
-      {/* Animated Wing (Real Pankh) */}
-      <Animated.View 
-        style={[
-          styles.wingShape, 
-          { backgroundColor: bird.wing }, 
-          animatedWingStyle
-        ]}
-      >
-        <View style={styles.wingStreak} />
-      </Animated.View>
-
-      {/* Feet */}
-      <View style={styles.feetGroup}>
-        <View style={styles.claw} />
-        <View style={styles.claw} />
+  // 2. YELLOW STAR (Video Style Golden 5-Star Candy)
+  if (color === 'yellow') {
+    return (
+      <View style={[styles.center, { width: s, height: s }]}>
+        <View style={[styles.starShape, { width: s * 0.88, height: s * 0.88 }]}>
+          <Text style={{ fontSize: s * 0.72, color: '#FFD700' }}>⭐</Text>
+          <View style={styles.topGlossSpot} />
+        </View>
       </View>
-    </Animated.View>
+    );
+  }
+
+  // 3. BLUE SQUARE CUBE (Video Style Cyan Ice-Cube Candy)
+  if (color === 'blue') {
+    return (
+      <View style={[styles.center, { width: s, height: s }]}>
+        <View style={[styles.blueCube, { width: s * 0.76, height: s * 0.76 }]}>
+          <View style={styles.cubeReflection} />
+          <View style={styles.cubeCenterGem} />
+        </View>
+      </View>
+    );
+  }
+
+  // 4. GREEN ROUND/CLOVER (Video Style Green Gem)
+  if (color === 'green') {
+    return (
+      <View style={[styles.center, { width: s, height: s }]}>
+        <View style={[styles.greenGem, { width: s * 0.78, height: s * 0.78 }]}>
+          <View style={styles.gemGlossGleam} />
+          <Text style={{ fontSize: s * 0.44 }}>🍀</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // 5. PURPLE DROP/FLOWER (Video Style Violet Drop Candy)
+  if (color === 'purple') {
+    return (
+      <View style={[styles.center, { width: s, height: s }]}>
+        <View style={[styles.purpleDrop, { width: s * 0.78, height: s * 0.78 }]}>
+          <View style={styles.gemGlossGleam} />
+          <Text style={{ fontSize: s * 0.48 }}>🌸</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // 6. ORANGE JELLY BEAN (Video Style Orange Bean Candy)
+  return (
+    <View style={[styles.center, { width: s, height: s }]}>
+      <View style={[styles.orangeBean, { width: s * 0.84, height: s * 0.64 }]}>
+        <View style={styles.beanWhiteGloss} />
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  root: {
+  center: {
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
-  crest: {
+  topGlossSpot: {
     position: 'absolute',
     top: 2,
-    right: 17,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 5,
-    borderRightWidth: 3,
-    borderBottomWidth: 10,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: '#E53935',
-    transform: [{ rotate: '25deg' }],
-    zIndex: 1,
+    left: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
   },
-  bodyShape: {
-    width: 32,
-    height: 29,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 18,
-    borderBottomLeftRadius: 13,
-    borderBottomRightRadius: 17,
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  chestLayer: {
-    position: 'absolute',
-    bottom: 1,
-    right: 2,
-    width: 17,
-    height: 18,
-    borderBottomRightRadius: 15,
-    borderTopLeftRadius: 8,
-    opacity: 0.85,
-  },
-  eyeMask: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    width: 11,
-    height: 10,
-    borderRadius: 5,
-    opacity: 0.7,
-  },
-  eyeContainer: {
-    position: 'absolute',
-    top: 7,
-    right: 8,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
+  heartShape: {
     alignItems: 'center',
-    zIndex: 3,
+    justifyContent: 'center',
   },
-  pupil: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#0F0F0F',
+  starShape: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  shine: {
+  blueCube: {
+    backgroundColor: '#00D2D3',
+    borderRadius: 14,
+    borderWidth: 2.5,
+    borderColor: '#01A3A4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#01A3A4',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    elevation: 5,
+  },
+  cubeReflection: {
     position: 'absolute',
-    top: 0.8,
-    right: 0.8,
-    width: 1.8,
-    height: 1.8,
-    borderRadius: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  beak: {
-    position: 'absolute',
-    top: 9,
-    right: -7,
-    width: 0,
-    height: 0,
-    borderTopWidth: 3.5,
-    borderBottomWidth: 3.5,
-    borderLeftWidth: 8,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    zIndex: 4,
-  },
-  tailFeather: {
-    position: 'absolute',
-    bottom: 6,
-    left: 2,
-    width: 14,
-    height: 7,
-    borderRadius: 3,
-    transform: [{ rotate: '-32deg' }],
-  },
-  wingShape: {
-    position: 'absolute',
-    top: 9,
-    left: 6,
-    width: 20,
-    height: 14,
-    borderTopLeftRadius: 11,
-    borderTopRightRadius: 11,
-    borderBottomLeftRadius: 3,
-    borderBottomRightRadius: 13,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.4)',
-    zIndex: 5,
-  },
-  wingStreak: {
-    position: 'absolute',
-    bottom: 3,
+    top: 2,
     left: 3,
-    width: 12,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.5)',
+    width: '40%',
+    height: '25%',
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    borderRadius: 6,
   },
-  feetGroup: {
+  cubeCenterGem: {
+    width: '36%',
+    height: '36%',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
+  greenGem: {
+    backgroundColor: '#10AC84',
+    borderRadius: 25,
+    borderWidth: 2.5,
+    borderColor: '#1DD1A1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  purpleDrop: {
+    backgroundColor: '#5F27CD',
+    borderRadius: 22,
+    borderWidth: 2.5,
+    borderColor: '#341F97',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  gemGlossGleam: {
     position: 'absolute',
-    bottom: 4,
-    right: 14,
-    flexDirection: 'row',
-    gap: 3,
-    zIndex: 1,
+    top: 3,
+    left: 5,
+    width: '35%',
+    height: '28%',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: 10,
   },
-  claw: {
-    width: 3.5,
-    height: 3,
-    backgroundColor: '#5D4037',
-    borderRadius: 1,
+  orangeBean: {
+    backgroundColor: '#FF9F43',
+    borderRadius: 18,
+    borderWidth: 2.5,
+    borderColor: '#EE5253',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  beanWhiteGloss: {
+    position: 'absolute',
+    top: 2,
+    left: 6,
+    width: '50%',
+    height: '30%',
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    borderRadius: 10,
   },
 });
-
-export default VectorBird;

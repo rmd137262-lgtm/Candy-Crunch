@@ -1,71 +1,89 @@
-class SoundManager {
-  private bgm: HTMLAudioElement | null = null;
-  private isMuted: boolean = false;
+class WebSoundEngine {
+  private ctx: AudioContext | null = null;
+  private muted: boolean = false;
 
-  constructor() {
-    this.initBGM();
-  }
-
-  private initBGM() {
-    try {
-      this.bgm = new Audio('/assets/sounds/bgm_map.mp3');
-      this.bgm.loop = true;
-      this.bgm.volume = 0.4;
-    } catch (e) {
-      console.warn('Audio init error:', e);
+  private getContext(): AudioContext | null {
+    if (typeof window === 'undefined' || this.muted) return null;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!this.ctx) {
+      this.ctx = new AudioCtx();
     }
-  }
-
-  public playBGM() {
-    if (this.bgm && !this.isMuted) {
-      this.bgm.play().catch(() => {
-        // Browser autoplay policy handling
-      });
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
     }
+    return this.ctx;
   }
 
-  public stopBGM() {
-    if (this.bgm) {
-      this.bgm.pause();
-    }
+  getMuted(): boolean {
+    return this.muted;
   }
 
-  public playPop() {
-    this.playEffect('/assets/sounds/match_pop.mp3', 0.8);
+  toggleMute(): boolean {
+    this.muted = !this.muted;
+    return this.muted;
   }
 
-  public playBlast() {
-    this.playEffect('/assets/sounds/blast.mp3', 0.9);
+  setMuted(m: boolean) {
+    this.muted = m;
   }
 
-  public playWin() {
-    this.playEffect('/assets/sounds/win.mp3', 1.0);
+  playPop() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    const now = ctx.currentTime;
+    osc.frequency.setValueAtTime(450, now);
+    osc.frequency.exponentialRampToValueAtTime(800, now + 0.08);
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.09);
   }
 
-  private playEffect(src: string, volume: number = 0.8) {
-    if (this.isMuted) return;
-    try {
-      const audio = new Audio(src);
-      audio.volume = volume;
-      audio.play().catch(() => {});
-    } catch (e) {
-      console.warn('Sound effect error:', e);
-    }
+  playBlast() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [523.25, 659.25, 783.99].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.04);
+      gain.gain.setValueAtTime(0.3, now + idx * 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + idx * 0.04);
+      osc.stop(now + 0.26);
+    });
   }
 
-  public toggleMute(): boolean {
-    this.isMuted = !this.isMuted;
-    if (this.isMuted) {
-      this.stopBGM();
-    } else {
-      this.playBGM();
-    }
-    return this.isMuted;
+  playWin() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const notes = [523.25, 659.25, 783.99, 1046.50];
+    const now = ctx.currentTime;
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.1);
+      gain.gain.setValueAtTime(0.35, now + i * 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.1);
+      osc.stop(now + i * 0.1 + 0.35);
+    });
   }
 
-  public getMuted(): boolean {
-    return this.isMuted;
-  }
+  playBGM() {}
+  stopBGM() {}
 }
 
-export const soundManager = new SoundManager();
+export const soundManager = new WebSoundEngine();
