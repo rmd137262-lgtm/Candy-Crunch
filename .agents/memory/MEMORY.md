@@ -1,1 +1,2 @@
 - [Bird game assets](bird-game-assets.md) — use transparent per-bird crops for the match board and keep the original source tiles unchanged.
+- [Candy game art and audio](candy-game-art-and-audio.md) — keep existing candy sprites and use audio assets already included in the project.

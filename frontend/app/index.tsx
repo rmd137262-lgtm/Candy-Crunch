@@ -4,20 +4,17 @@ import {
   View,
   Text,
   Image,
-  Dimensions,
-  Alert,
+  ImageBackground,
   SafeAreaView,
   Platform,
+  Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { soundManager } from '../src/game/soundManager';
 
-const { width } = Dimensions.get('window');
-
 const COLS = 7;
 const ROWS = 9;
-const BOARD_WIDTH = Math.min(width - 16, 420);
-const TILE_SIZE = Math.floor(BOARD_WIDTH / COLS);
-const BOARD_HEIGHT = TILE_SIZE * ROWS;
+const STARTING_MOVES = 24;
 
 const CANDY_ASSETS = {
   blue: require('../assets/images/candy_blue.png'),
@@ -31,14 +28,24 @@ const CANDY_ASSETS = {
 const BASE_CANDIES = ['blue', 'green', 'red', 'star'];
 
 export default function App() {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const tileSize = Math.max(
+    32,
+    Math.floor(Math.min(screenWidth * 0.8, 380, ((screenHeight - 280) * COLS) / ROWS) / COLS),
+  );
+  const boardWidth = tileSize * COLS;
+  const boardHeight = tileSize * ROWS;
+  const [screen, setScreen] = useState<'home' | 'game'>('home');
   const [board, setBoard] = useState<string[]>([]);
-  const [moves, setMoves] = useState<number>(25);
-  const [blueTarget, setBlueTarget] = useState<number>(20);
+  const [moves, setMoves] = useState<number>(STARTING_MOVES);
+  const [crateCells, setCrateCells] = useState<number[]>([]);
   const [gameOver, setGameOver] = useState<boolean>(false);
+  const [result, setResult] = useState<'win' | 'lose' | null>(null);
+  const [isMuted, setIsMuted] = useState(soundManager.getMuted());
 
   const boardRef = useRef<string[]>([]);
-  const movesRef = useRef<number>(25);
-  const blueTargetRef = useRef<number>(20);
+  const movesRef = useRef<number>(STARTING_MOVES);
+  const crateRef = useRef<number[]>([]);
   const gameOverRef = useRef<boolean>(false);
   const touchStartRef = useRef<{ x: number; y: number; index: number } | null>(null);
 
@@ -51,40 +58,72 @@ export default function App() {
   }, [moves]);
 
   useEffect(() => {
-    blueTargetRef.current = blueTarget;
-  }, [blueTarget]);
-
-  useEffect(() => {
     gameOverRef.current = gameOver;
   }, [gameOver]);
 
-  useEffect(() => {
-    resetGame();
-  }, []);
-
-  const resetGame = () => {
-    let newBoard: string[] = [];
-    for (let i = 0; i < ROWS * COLS; i++) {
-      newBoard.push(BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)]);
+  const makeCrates = () => {
+    const cells: number[] = [];
+    for (let r = ROWS - 3; r < ROWS; r++) {
+      for (let c = 2; c < 5; c++) cells.push(r * COLS + c);
     }
-    setBoard(newBoard);
-    boardRef.current = newBoard;
-    setMoves(25);
-    movesRef.current = 25;
-    setBlueTarget(20);
-    blueTargetRef.current = 20;
-    setGameOver(false);
-    gameOverRef.current = false;
+    return cells;
   };
 
-  const getIndicesMatches = (currentBoard: string[]) => {
+  const resetGame = () => {
+    const startingCrates = makeCrates();
+    const crateSet = new Set(startingCrates);
+    const newBoard: string[] = [];
+
+    for (let index = 0; index < ROWS * COLS; index++) {
+      const r = Math.floor(index / COLS);
+      const c = index % COLS;
+      let candy = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
+      if (!crateSet.has(index)) {
+        for (let attempt = 0; attempt < 16; attempt++) {
+          candy = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
+          const horizontal = c >= 2
+            && !crateSet.has(index - 1)
+            && !crateSet.has(index - 2)
+            && newBoard[index - 1] === candy
+            && newBoard[index - 2] === candy;
+          const vertical = r >= 2
+            && !crateSet.has(index - COLS)
+            && !crateSet.has(index - COLS * 2)
+            && newBoard[index - COLS] === candy
+            && newBoard[index - COLS * 2] === candy;
+          if (!horizontal && !vertical) break;
+        }
+      }
+      newBoard.push(candy);
+    }
+
+    crateRef.current = startingCrates;
+    setCrateCells(startingCrates);
+    setBoard(newBoard);
+    boardRef.current = newBoard;
+    setMoves(STARTING_MOVES);
+    movesRef.current = STARTING_MOVES;
+    setGameOver(false);
+    gameOverRef.current = false;
+    setResult(null);
+  };
+
+  const getIndicesMatches = (currentBoard: string[], blockedCells = crateRef.current) => {
     let matched = new Set<number>();
+    const blocked = new Set(blockedCells);
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS - 2; c++) {
         let i = r * COLS + c;
         let candy = currentBoard[i];
-        if (candy && candy === currentBoard[i + 1] && candy === currentBoard[i + 2]) {
+        if (
+          candy
+          && !blocked.has(i)
+          && !blocked.has(i + 1)
+          && !blocked.has(i + 2)
+          && candy === currentBoard[i + 1]
+          && candy === currentBoard[i + 2]
+        ) {
           matched.add(i);
           matched.add(i + 1);
           matched.add(i + 2);
@@ -96,7 +135,14 @@ export default function App() {
       for (let r = 0; r < ROWS - 2; r++) {
         let i = r * COLS + c;
         let candy = currentBoard[i];
-        if (candy && candy === currentBoard[i + COLS] && candy === currentBoard[i + 2 * COLS]) {
+        if (
+          candy
+          && !blocked.has(i)
+          && !blocked.has(i + COLS)
+          && !blocked.has(i + COLS * 2)
+          && candy === currentBoard[i + COLS]
+          && candy === currentBoard[i + COLS * 2]
+        ) {
           matched.add(i);
           matched.add(i + COLS);
           matched.add(i + 2 * COLS);
@@ -108,51 +154,77 @@ export default function App() {
 
   const applyGravityAndFill = (currentBoard: string[], matchedIndices: number[], remainingMoves: number) => {
     soundManager.playPop();
-    let blueCleared = 0;
+    soundManager.playBlast();
     let newBoard = [...currentBoard];
+    const remainingCrates = new Set(crateRef.current);
+    let pending = matchedIndices;
+    let cascade = 0;
 
-    matchedIndices.forEach((idx) => {
-      if (newBoard[idx] === 'blue') blueCleared++;
-      newBoard[idx] = '';
-    });
+    while (pending.length > 0 && cascade < 10) {
+      const cleared = new Set(pending);
+      cleared.forEach((idx) => {
+        newBoard[idx] = '';
+        const r = Math.floor(idx / COLS);
+        const c = idx % COLS;
+        [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([nr, nc]) => {
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+            remainingCrates.delete(nr * COLS + nc);
+          }
+        });
+      });
 
-    const newTarget = Math.max(0, blueTargetRef.current - blueCleared);
-    setBlueTarget(newTarget);
-    blueTargetRef.current = newTarget;
-
-    for (let c = 0; c < COLS; c++) {
-      let emptyCount = 0;
-      for (let r = ROWS - 1; r >= 0; r--) {
-        let idx = r * COLS + c;
-        if (newBoard[idx] === '') {
-          emptyCount++;
-        } else if (emptyCount > 0) {
-          newBoard[(r + emptyCount) * COLS + c] = newBoard[idx];
-          newBoard[idx] = '';
+      for (let c = 0; c < COLS; c++) {
+        let row = ROWS - 1;
+        while (row >= 0) {
+          if (remainingCrates.has(row * COLS + c)) {
+            row--;
+            continue;
+          }
+          const segmentBottom = row;
+          while (row >= 0 && !remainingCrates.has(row * COLS + c)) row--;
+          const segmentTop = row + 1;
+          const falling: string[] = [];
+          for (let r = segmentBottom; r >= segmentTop; r--) {
+            const candy = newBoard[r * COLS + c];
+            if (candy) falling.push(candy);
+          }
+          let writeRow = segmentBottom;
+          falling.forEach((candy) => {
+            newBoard[writeRow * COLS + c] = candy;
+            writeRow--;
+          });
+          while (writeRow >= segmentTop) {
+            newBoard[writeRow * COLS + c] = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
+            writeRow--;
+          }
         }
       }
-      for (let r = 0; r < emptyCount; r++) {
-        newBoard[r * COLS + c] = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
+
+      cascade++;
+      pending = getIndicesMatches(newBoard, Array.from(remainingCrates));
+      if (pending.length > 0) {
+        soundManager.playBlast();
       }
     }
 
+    const updatedCrates = Array.from(remainingCrates);
+    crateRef.current = updatedCrates;
+    setCrateCells(updatedCrates);
+    setMoves(remainingMoves);
+    movesRef.current = remainingMoves;
     setBoard(newBoard);
     boardRef.current = newBoard;
 
-    if (newTarget === 0) {
+    if (updatedCrates.length === 0) {
       setGameOver(true);
       gameOverRef.current = true;
+      setResult('win');
       soundManager.playWin();
-      Alert.alert('Mubarak Ho! 🎉', 'Level 1 Complete Kar Liya!', [
-        { text: 'Play Again', onPress: resetGame },
-      ]);
     } else if (remainingMoves <= 0) {
       setGameOver(true);
       gameOverRef.current = true;
+      setResult('lose');
       soundManager.playOver();
-      Alert.alert('Game Over', 'Moves Khatam Ho Gayin!', [
-        { text: 'Try Again', onPress: resetGame },
-      ]);
     }
   };
 
@@ -169,6 +241,8 @@ export default function App() {
     if (direction === 'DOWN' && row < ROWS - 1) targetIndex = startIndex + COLS;
 
     if (targetIndex === -1) return;
+    const blocked = new Set(crateRef.current);
+    if (blocked.has(startIndex) || blocked.has(targetIndex)) return;
 
     let swapped = [...boardRef.current];
     const temp = swapped[startIndex];
@@ -176,30 +250,36 @@ export default function App() {
     swapped[targetIndex] = temp;
 
     const matches = getIndicesMatches(swapped);
-    if (matches.length > 0) {
+    const matchUsesMovedCandy = matches.some((index) => index === startIndex || index === targetIndex);
+    if (matches.length > 0 && matchUsesMovedCandy) {
       soundManager.playSwap();
       const remainingMoves = movesRef.current - 1;
-      setMoves(remainingMoves);
-      movesRef.current = remainingMoves;
       setBoard(swapped);
       boardRef.current = swapped;
       applyGravityAndFill(swapped, matches, remainingMoves);
     }
   };
 
-  const handlePointerDown = (e: any, index: number) => {
-    const pageX = e.pageX || (e.touches && e.touches[0] ? e.touches[0].pageX : 0);
-    const pageY = e.pageY || (e.touches && e.touches[0] ? e.touches[0].pageY : 0);
-    touchStartRef.current = { x: pageX, y: pageY, index };
+  const getPointerPosition = (event: any) => {
+    const native = event?.nativeEvent ?? event;
+    const point = native.changedTouches?.[0] ?? native.touches?.[0] ?? native;
+    return {
+      x: point.pageX ?? point.clientX ?? 0,
+      y: point.pageY ?? point.clientY ?? 0,
+    };
   };
 
-  const handlePointerUp = (e: any) => {
-    if (!touchStartRef.current) return;
-    const pageX = e.pageX || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].pageX : 0);
-    const pageY = e.pageY || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].pageY : 0);
+  const handlePointerDown = (event: any, index: number) => {
+    const { x, y } = getPointerPosition(event);
+    if (new Set(crateRef.current).has(index)) return;
+    touchStartRef.current = { x, y, index };
+  };
 
-    const dx = pageX - touchStartRef.current.x;
-    const dy = pageY - touchStartRef.current.y;
+  const handlePointerUp = (event: any) => {
+    if (!touchStartRef.current) return;
+    const { x, y } = getPointerPosition(event);
+    const dx = x - touchStartRef.current.x;
+    const dy = y - touchStartRef.current.y;
     const threshold = 12;
 
     if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
@@ -212,27 +292,89 @@ export default function App() {
     touchStartRef.current = null;
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Top Header */}
-      <View style={styles.topTableBar}>
-        <View style={styles.moveTag}>
-          <Text style={styles.moveLabel}>Move</Text>
-          <Text style={styles.moveCount}>{moves}</Text>
-        </View>
+  const crateSet = new Set(crateCells);
 
-        <View style={styles.targetPlate}>
-          <Image source={CANDY_ASSETS.blue} style={styles.targetIcon} resizeMode="contain" />
-          <View style={styles.numberBadge}>
-            <Text style={styles.targetBadgeText}>{blueTarget}</Text>
+  if (screen === 'home') {
+    return (
+      <SafeAreaView style={styles.homeContainer}>
+        <ImageBackground
+          source={require('../assets/images/map_bg.png')}
+          resizeMode="cover"
+          style={styles.homeBackground}
+        >
+          <View style={styles.homeShade}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isMuted ? 'Turn sound on' : 'Mute sound'}
+              onPress={() => setIsMuted(soundManager.toggleMute())}
+              style={styles.soundButton}
+            >
+              <Text style={styles.soundButtonText}>{isMuted ? '🔇' : '🔊'}</Text>
+            </Pressable>
+            <View style={styles.homeContent}>
+              <Image
+                source={require('../assets/images/candy-crunch-logo.png')}
+                style={styles.homeLogo}
+                resizeMode="contain"
+              />
+              <Text style={styles.homeTagline}>MATCH · POP · PLAY</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  resetGame();
+                  soundManager.playBGM();
+                  setScreen('game');
+                }}
+                style={({ pressed }) => [styles.playButton, pressed && styles.playButtonPressed]}
+              >
+                <Text style={styles.playButtonText}>PLAY</Text>
+              </Pressable>
+            </View>
           </View>
+        </ImageBackground>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.gameContainer}>
+      <View style={styles.kitchenHeader}>
+        <View style={styles.topTableBar}>
+          <View style={styles.moveTag}>
+            <Text style={styles.moveLabel}>MOVE</Text>
+            <Text style={styles.moveCount}>{moves}</Text>
+          </View>
+
+          <View style={styles.targetPlate}>
+            <View style={styles.targetCrateIcon}>
+              <View style={styles.targetCrateInset} />
+              <View style={styles.targetCrateCross} />
+            </View>
+            <View style={styles.numberBadge}>
+              <Text style={styles.targetBadgeText}>{crateCells.length}</Text>
+            </View>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Return to home screen"
+            onPress={() => setScreen('home')}
+            style={styles.homeButton}
+          >
+            <Text style={styles.homeButtonText}>⌂</Text>
+          </Pressable>
+        </View>
+        <View style={styles.checkeredTrim}>
+          {Array.from({ length: 22 }, (_, index) => (
+            <View key={index} style={[styles.trimSquare, index % 2 === 0 && styles.trimSquarePink]} />
+          ))}
         </View>
       </View>
 
-      {/* 9x7 Board */}
-      <View style={styles.boardContainer}>
+      <View style={styles.gameField}>
+        <View style={[styles.boardContainer, { width: boardWidth + 10, height: boardHeight + 10 }]}>
         <View
-          style={[styles.board, { width: TILE_SIZE * COLS, height: BOARD_HEIGHT }]}
+          style={[styles.board, { width: boardWidth, height: boardHeight }]}
           // @ts-ignore
           onPointerUp={handlePointerUp}
           onTouchEnd={handlePointerUp}
@@ -242,120 +384,103 @@ export default function App() {
               key={index}
               style={[
                 styles.tile,
-                { width: TILE_SIZE, height: TILE_SIZE },
+                { width: tileSize, height: tileSize },
                 Platform.OS === 'web' ? ({ touchAction: 'none', userSelect: 'none' } as any) : {},
               ]}
               // @ts-ignore
               onPointerDown={(e) => handlePointerDown(e, index)}
               onTouchStart={(e) => handlePointerDown(e, index)}
             >
-              {item ? (
+              {crateSet.has(index) ? (
+                <View style={styles.crateTile}>
+                  <View style={styles.crateInset} />
+                  <View style={styles.crateHorizontal} />
+                  <View style={styles.crateVertical} />
+                </View>
+              ) : item ? (
                 <Image
                   source={CANDY_ASSETS[item as keyof typeof CANDY_ASSETS]}
-                  style={styles.candyImage}
+                  style={{ width: tileSize * 0.88, height: tileSize * 0.88 }}
                   resizeMode="stretch"
                 />
               ) : null}
             </View>
           ))}
         </View>
+        </View>
+        <Text style={styles.boardHint}>Match 3 candies to break the crates</Text>
       </View>
+
+      <View style={styles.bottomBar}>
+        <Text style={styles.bottomBarText}>Clear the crates before your moves run out!</Text>
+      </View>
+
+      {result ? (
+        <View style={styles.resultOverlay}>
+          <View style={styles.resultCard}>
+            <Text style={styles.resultTitle}>{result === 'win' ? 'LEVEL COMPLETE!' : 'OUT OF MOVES'}</Text>
+            <Text style={styles.resultMessage}>
+              {result === 'win' ? 'You cleared every crate!' : `${crateCells.length} crates left. Try again!`}
+            </Text>
+            <Pressable onPress={resetGame} style={styles.resultPrimary}>
+              <Text style={styles.resultPrimaryText}>{result === 'win' ? 'PLAY AGAIN' : 'RETRY'}</Text>
+            </Pressable>
+            <Pressable onPress={() => setScreen('home')} style={styles.resultSecondary}>
+              <Text style={styles.resultSecondaryText}>HOME</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fed330',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  topTableBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '92%',
-    marginTop: 20,
-    marginBottom: 16,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 22,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-  },
-  moveTag: {
-    backgroundColor: '#20bf6b',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  moveLabel: {
-    fontSize: 12,
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  moveCount: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#fff',
-  },
-  targetPlate: {
-    width: 58,
-    height: 58,
-    backgroundColor: '#f1f2f6',
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#dcdde1',
-    position: 'relative',
-  },
-  targetIcon: {
-    width: 44,
-    height: 44,
-  },
-  numberBadge: {
-    position: 'absolute',
-    bottom: -6,
-    right: -6,
-    backgroundColor: '#eb3b5a',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  targetBadgeText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  boardContainer: {
-    padding: 2,
-    backgroundColor: '#2d3436',
-    borderRadius: 8,
-    elevation: 8,
-  },
-  board: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: '#2d3436',
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  tile: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    padding: 0,
-    margin: 0,
-  },
-  candyImage: {
-    width: '100%',
-    height: '100%',
-  },
+  homeContainer: { flex: 1, backgroundColor: '#1B3668' },
+  homeBackground: { flex: 1, width: '100%' },
+  homeShade: { flex: 1, backgroundColor: 'rgba(15, 27, 61, 0.22)', alignItems: 'center', justifyContent: 'center', padding: 22 },
+  soundButton: { position: 'absolute', top: 18, right: 18, zIndex: 3, width: 46, height: 46, borderRadius: 24, backgroundColor: '#0D7C83', borderWidth: 3, borderColor: '#DFF8D0', alignItems: 'center', justifyContent: 'center' },
+  soundButtonText: { fontSize: 21 },
+  homeContent: { width: '100%', maxWidth: 420, alignItems: 'center', justifyContent: 'center', paddingVertical: 22, borderRadius: 34, backgroundColor: 'rgba(255, 246, 218, 0.82)', borderWidth: 3, borderColor: '#F6CF69' },
+  homeLogo: { width: '78%', maxWidth: 300, height: 290 },
+  homeTagline: { color: '#704183', fontSize: 14, fontWeight: '900', letterSpacing: 3, marginTop: -5, marginBottom: 20 },
+  playButton: { width: '72%', minHeight: 64, borderRadius: 23, backgroundColor: '#50CD37', borderWidth: 4, borderColor: '#B9F68C', alignItems: 'center', justifyContent: 'center', shadowColor: '#244413', shadowOpacity: 0.28, shadowRadius: 6, shadowOffset: { width: 0, height: 5 }, elevation: 6 },
+  playButtonPressed: { transform: [{ scale: 0.97 }], opacity: 0.92 },
+  playButtonText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900', letterSpacing: 2, textShadowColor: '#328220', textShadowRadius: 3 },
+  gameContainer: { flex: 1, backgroundColor: '#EBAF90', alignItems: 'center' },
+  kitchenHeader: { width: '100%', backgroundColor: '#D8E362', borderBottomWidth: 3, borderBottomColor: '#C78F67', paddingTop: 6, alignItems: 'center' },
+  topTableBar: { width: '90%', maxWidth: 430, minHeight: 89, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 6 },
+  moveTag: { minWidth: 94, height: 83, backgroundColor: '#FFF1D2', borderWidth: 4, borderTopWidth: 0, borderColor: '#09938C', borderBottomLeftRadius: 25, borderBottomRightRadius: 25, alignItems: 'center', justifyContent: 'center', paddingTop: 5, shadowColor: '#4B4C28', shadowOpacity: 0.22, shadowRadius: 3, elevation: 5 },
+  moveLabel: { fontSize: 12, color: '#88634E', fontWeight: '900', letterSpacing: 1.4 },
+  moveCount: { fontSize: 35, lineHeight: 39, fontWeight: '900', color: '#78492F' },
+  targetPlate: { width: 62, height: 57, backgroundColor: '#FFF3D5', borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#F1BB6C', position: 'relative', marginRight: 20 },
+  targetCrateIcon: { width: 35, height: 35, backgroundColor: '#A75E22', borderWidth: 3, borderColor: '#724016', borderRadius: 5, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  targetCrateInset: { position: 'absolute', width: 19, height: 19, borderWidth: 3, borderColor: '#D5903B', backgroundColor: '#B9762D' },
+  targetCrateCross: { position: 'absolute', width: 37, height: 4, backgroundColor: '#E0A657', transform: [{ rotate: '-43deg' }] },
+  numberBadge: { position: 'absolute', bottom: -8, right: -10, minWidth: 25, height: 25, backgroundColor: '#EB4D4A', paddingHorizontal: 6, borderRadius: 13, borderWidth: 2, borderColor: '#FFF1D2', alignItems: 'center', justifyContent: 'center' },
+  targetBadgeText: { color: '#FFFFFF', fontWeight: '900', fontSize: 12 },
+  homeButton: { width: 46, height: 46, borderRadius: 24, backgroundColor: '#49B6E1', borderWidth: 4, borderColor: '#FFF3CF', alignItems: 'center', justifyContent: 'center', elevation: 4 },
+  homeButtonText: { color: '#FFFFFF', fontSize: 27, fontWeight: '900', lineHeight: 30 },
+  checkeredTrim: { height: 18, width: '100%', flexDirection: 'row', borderTopWidth: 2, borderColor: '#FFF4DC', overflow: 'hidden' },
+  trimSquare: { flex: 1, backgroundColor: '#FFF6E4', borderRightWidth: 1, borderRightColor: '#E4B7A0' },
+  trimSquarePink: { backgroundColor: '#F0878B' },
+  gameField: { flex: 1, width: '100%', minHeight: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
+  boardContainer: { padding: 5, backgroundColor: '#4A6590', borderWidth: 2, borderColor: '#829AC3', borderRadius: 14, shadowColor: '#513C31', shadowOpacity: 0.27, shadowRadius: 8, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  board: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#3D557D', borderRadius: 8, overflow: 'hidden' },
+  tile: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(227, 239, 255, 0.27)', backgroundColor: '#6B83AA', padding: 0, margin: 0 },
+  crateTile: { width: '100%', height: '100%', backgroundColor: '#A9692D', borderWidth: 3, borderColor: '#73421E', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  crateInset: { position: 'absolute', width: '68%', height: '68%', borderWidth: 4, borderColor: '#D59A54', backgroundColor: '#B87835' },
+  crateHorizontal: { position: 'absolute', left: -2, right: -2, height: 5, backgroundColor: '#D89E58', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#885322' },
+  crateVertical: { position: 'absolute', top: -2, bottom: -2, width: 5, backgroundColor: '#D89E58', borderLeftWidth: 1, borderRightWidth: 1, borderColor: '#885322' },
+  boardHint: { color: '#7E4E3A', fontSize: 12, fontWeight: '800', marginTop: 10 },
+  bottomBar: { minHeight: 49, width: '100%', backgroundColor: '#0A9186', borderTopWidth: 3, borderTopColor: '#6ACDA7', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  bottomBarText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  resultOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(31, 24, 36, 0.72)', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 10 },
+  resultCard: { width: '100%', maxWidth: 350, borderRadius: 30, borderWidth: 4, borderColor: '#F4C87D', backgroundColor: '#0C9A8E', padding: 24, alignItems: 'center' },
+  resultTitle: { color: '#FFF8E5', fontSize: 25, fontWeight: '900', textAlign: 'center' },
+  resultMessage: { color: '#E0F7EA', fontSize: 15, fontWeight: '700', textAlign: 'center', marginTop: 10, marginBottom: 14 },
+  resultPrimary: { width: '100%', minHeight: 54, borderRadius: 18, backgroundColor: '#5AD527', borderWidth: 3, borderColor: '#B8F184', alignItems: 'center', justifyContent: 'center', marginTop: 6 },
+  resultPrimaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  resultSecondary: { width: '100%', minHeight: 44, borderRadius: 15, backgroundColor: '#087B75', alignItems: 'center', justifyContent: 'center', marginTop: 9 },
+  resultSecondaryText: { color: '#FFF4D9', fontSize: 13, fontWeight: '900' },
 });
