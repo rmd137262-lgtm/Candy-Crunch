@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   useWindowDimensions,
+  Animated,
 } from 'react-native';
 import { soundManager } from '../src/game/soundManager';
 
@@ -26,6 +27,12 @@ const CANDY_ASSETS = {
 };
 
 const BASE_CANDIES = ['blue', 'green', 'red', 'star'];
+const CANDY_IMAGE_SCALE: Record<string, { width: number; height: number }> = {
+  blue: { width: 1.1, height: 1.13 },
+  green: { width: 1.31, height: 1.32 },
+  red: { width: 1.1, height: 1.06 },
+  star: { width: 1.12, height: 1.17 },
+};
 
 export default function App() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -35,6 +42,10 @@ export default function App() {
   );
   const boardWidth = tileSize * COLS;
   const boardHeight = tileSize * ROWS;
+  const candyImageSize = (candy: string) => {
+    const scale = CANDY_IMAGE_SCALE[candy] ?? { width: 1.12, height: 1.12 };
+    return { width: tileSize * scale.width, height: tileSize * scale.height };
+  };
   const [screen, setScreen] = useState<'home' | 'game'>('home');
   const [board, setBoard] = useState<string[]>([]);
   const [moves, setMoves] = useState<number>(STARTING_MOVES);
@@ -42,12 +53,17 @@ export default function App() {
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [result, setResult] = useState<'win' | 'lose' | null>(null);
   const [isMuted, setIsMuted] = useState(soundManager.getMuted());
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
 
   const boardRef = useRef<string[]>([]);
   const movesRef = useRef<number>(STARTING_MOVES);
   const crateRef = useRef<number[]>([]);
   const gameOverRef = useRef<boolean>(false);
   const touchStartRef = useRef<{ x: number; y: number; index: number } | null>(null);
+  const dragPosition = useRef(new Animated.ValueXY()).current;
+  const swapPosition = useRef(new Animated.ValueXY()).current;
+  const isAnimatingRef = useRef(false);
 
   useEffect(() => {
     boardRef.current = board;
@@ -228,8 +244,8 @@ export default function App() {
     }
   };
 
-  const handleSwap = (startIndex: number, direction: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
-    if (gameOverRef.current || movesRef.current <= 0) return;
+  const getSwapCandidate = (startIndex: number, direction: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
+    if (gameOverRef.current || movesRef.current <= 0 || isAnimatingRef.current) return null;
 
     const row = Math.floor(startIndex / COLS);
     const col = startIndex % COLS;
@@ -240,24 +256,27 @@ export default function App() {
     if (direction === 'UP' && row > 0) targetIndex = startIndex - COLS;
     if (direction === 'DOWN' && row < ROWS - 1) targetIndex = startIndex + COLS;
 
-    if (targetIndex === -1) return;
+    if (targetIndex === -1) return null;
     const blocked = new Set(crateRef.current);
-    if (blocked.has(startIndex) || blocked.has(targetIndex)) return;
+    if (blocked.has(startIndex) || blocked.has(targetIndex)) return null;
 
-    let swapped = [...boardRef.current];
+    const swapped = [...boardRef.current];
     const temp = swapped[startIndex];
     swapped[startIndex] = swapped[targetIndex];
     swapped[targetIndex] = temp;
 
     const matches = getIndicesMatches(swapped);
     const matchUsesMovedCandy = matches.some((index) => index === startIndex || index === targetIndex);
-    if (matches.length > 0 && matchUsesMovedCandy) {
-      soundManager.playSwap();
-      const remainingMoves = movesRef.current - 1;
-      setBoard(swapped);
-      boardRef.current = swapped;
-      applyGravityAndFill(swapped, matches, remainingMoves);
-    }
+    if (matches.length === 0 || !matchUsesMovedCandy) return null;
+    return { targetIndex, swapped, matches };
+  };
+
+  const commitSwap = (candidate: NonNullable<ReturnType<typeof getSwapCandidate>>) => {
+    soundManager.playSwap();
+    const remainingMoves = movesRef.current - 1;
+    setBoard(candidate.swapped);
+    boardRef.current = candidate.swapped;
+    applyGravityAndFill(candidate.swapped, candidate.matches, remainingMoves);
   };
 
   const getPointerPosition = (event: any) => {
@@ -270,26 +289,105 @@ export default function App() {
   };
 
   const handlePointerDown = (event: any, index: number) => {
+    if (gameOverRef.current || movesRef.current <= 0 || isAnimatingRef.current) return;
     const { x, y } = getPointerPosition(event);
     if (new Set(crateRef.current).has(index)) return;
     touchStartRef.current = { x, y, index };
+    dragPosition.setValue({ x: 0, y: 0 });
+    swapPosition.setValue({ x: 0, y: 0 });
+    setSwapTargetIndex(null);
+    setDraggedIndex(index);
+
+    const pointerId = event?.nativeEvent?.pointerId ?? event?.pointerId;
+    if (Platform.OS === 'web' && pointerId !== undefined) {
+      event?.currentTarget?.setPointerCapture?.(pointerId);
+    }
+  };
+
+  const handlePointerMove = (event: any) => {
+    const start = touchStartRef.current;
+    if (!start || isAnimatingRef.current) return;
+    const { x, y } = getPointerPosition(event);
+    dragPosition.setValue({ x: x - start.x, y: y - start.y });
+  };
+
+  const clearDrag = () => {
+    dragPosition.setValue({ x: 0, y: 0 });
+    swapPosition.setValue({ x: 0, y: 0 });
+    setDraggedIndex(null);
+    setSwapTargetIndex(null);
+    isAnimatingRef.current = false;
+  };
+
+  const animateDragBack = () => {
+    isAnimatingRef.current = true;
+    Animated.parallel([
+      Animated.timing(dragPosition, {
+        toValue: { x: 0, y: 0 },
+        duration: 140,
+        useNativeDriver: false,
+      }),
+      Animated.timing(swapPosition, {
+        toValue: { x: 0, y: 0 },
+        duration: 140,
+        useNativeDriver: false,
+      }),
+    ]).start(clearDrag);
   };
 
   const handlePointerUp = (event: any) => {
-    if (!touchStartRef.current) return;
+    const start = touchStartRef.current;
+    if (!start) return;
     const { x, y } = getPointerPosition(event);
-    const dx = x - touchStartRef.current.x;
-    const dy = y - touchStartRef.current.y;
+    const dx = x - start.x;
+    const dy = y - start.y;
+    touchStartRef.current = null;
     const threshold = 12;
 
-    if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
-      if (Math.abs(dx) > Math.abs(dy)) {
-        handleSwap(touchStartRef.current.index, dx > 0 ? 'RIGHT' : 'LEFT');
-      } else {
-        handleSwap(touchStartRef.current.index, dy > 0 ? 'DOWN' : 'UP');
-      }
+    if (Math.abs(dx) <= threshold && Math.abs(dy) <= threshold) {
+      animateDragBack();
+      return;
     }
+
+    const direction = Math.abs(dx) > Math.abs(dy)
+      ? (dx > 0 ? 'RIGHT' : 'LEFT')
+      : (dy > 0 ? 'DOWN' : 'UP');
+    const candidate = getSwapCandidate(start.index, direction);
+    if (!candidate) {
+      animateDragBack();
+      return;
+    }
+
+    const startRow = Math.floor(start.index / COLS);
+    const startCol = start.index % COLS;
+    const targetRow = Math.floor(candidate.targetIndex / COLS);
+    const targetCol = candidate.targetIndex % COLS;
+    const offsetX = (targetCol - startCol) * tileSize;
+    const offsetY = (targetRow - startRow) * tileSize;
+    setSwapTargetIndex(candidate.targetIndex);
+    isAnimatingRef.current = true;
+
+    Animated.parallel([
+      Animated.timing(dragPosition, {
+        toValue: { x: offsetX, y: offsetY },
+        duration: 145,
+        useNativeDriver: false,
+      }),
+      Animated.timing(swapPosition, {
+        toValue: { x: -offsetX, y: -offsetY },
+        duration: 145,
+        useNativeDriver: false,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) commitSwap(candidate);
+      clearDrag();
+    });
+  };
+
+  const handlePointerCancel = () => {
+    if (!touchStartRef.current) return;
     touchStartRef.current = null;
+    animateDragBack();
   };
 
   const crateSet = new Set(crateCells);
@@ -376,6 +474,10 @@ export default function App() {
         <View
           style={[styles.board, { width: boardWidth, height: boardHeight }]}
           // @ts-ignore
+          onPointerMove={handlePointerMove}
+          onTouchMove={handlePointerMove}
+          onPointerCancel={handlePointerCancel}
+          onTouchCancel={handlePointerCancel}
           onPointerUp={handlePointerUp}
           onTouchEnd={handlePointerUp}
         >
@@ -398,14 +500,73 @@ export default function App() {
                   <View style={styles.crateVertical} />
                 </View>
               ) : item ? (
-                <Image
-                  source={CANDY_ASSETS[item as keyof typeof CANDY_ASSETS]}
-                  style={{ width: tileSize * 0.88, height: tileSize * 0.88 }}
-                  resizeMode="stretch"
-                />
+                <View style={[styles.candyClip, { width: tileSize, height: tileSize }]}>
+                  <Image
+                    source={CANDY_ASSETS[item as keyof typeof CANDY_ASSETS]}
+                    style={[
+                      candyImageSize(item),
+                      (draggedIndex === index || swapTargetIndex === index) && styles.hiddenCandy,
+                    ]}
+                    resizeMode="stretch"
+                  />
+                </View>
               ) : null}
             </View>
           ))}
+          {draggedIndex !== null && board[draggedIndex] ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.draggedCandy,
+                {
+                  left: (draggedIndex % COLS) * tileSize,
+                  top: Math.floor(draggedIndex / COLS) * tileSize,
+                  width: tileSize,
+                  height: tileSize,
+                  transform: [
+                    { translateX: dragPosition.x },
+                    { translateY: dragPosition.y },
+                    { scale: 1.12 },
+                  ],
+                },
+              ]}
+            >
+              <View style={[styles.candyClip, { width: tileSize, height: tileSize }]}>
+                <Image
+                  source={CANDY_ASSETS[board[draggedIndex] as keyof typeof CANDY_ASSETS]}
+                  style={candyImageSize(board[draggedIndex])}
+                  resizeMode="stretch"
+                />
+              </View>
+            </Animated.View>
+          ) : null}
+          {swapTargetIndex !== null && board[swapTargetIndex] ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.draggedCandy,
+                styles.swappingCandy,
+                {
+                  left: (swapTargetIndex % COLS) * tileSize,
+                  top: Math.floor(swapTargetIndex / COLS) * tileSize,
+                  width: tileSize,
+                  height: tileSize,
+                  transform: [
+                    { translateX: swapPosition.x },
+                    { translateY: swapPosition.y },
+                  ],
+                },
+              ]}
+            >
+              <View style={[styles.candyClip, { width: tileSize, height: tileSize }]}>
+                <Image
+                  source={CANDY_ASSETS[board[swapTargetIndex] as keyof typeof CANDY_ASSETS]}
+                  style={candyImageSize(board[swapTargetIndex])}
+                  resizeMode="stretch"
+                />
+              </View>
+            </Animated.View>
+          ) : null}
         </View>
         </View>
         <Text style={styles.boardHint}>Match 3 candies to break the crates</Text>
@@ -466,8 +627,12 @@ const styles = StyleSheet.create({
   trimSquarePink: { backgroundColor: '#F0878B' },
   gameField: { flex: 1, width: '100%', minHeight: 0, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
   boardContainer: { padding: 5, backgroundColor: '#4A6590', borderWidth: 2, borderColor: '#829AC3', borderRadius: 14, shadowColor: '#513C31', shadowOpacity: 0.27, shadowRadius: 8, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
-  board: { flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#3D557D', borderRadius: 8, overflow: 'hidden' },
+  board: { position: 'relative', flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#3D557D', borderRadius: 8, overflow: 'hidden' },
   tile: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(227, 239, 255, 0.27)', backgroundColor: '#6B83AA', padding: 0, margin: 0 },
+  candyClip: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  hiddenCandy: { opacity: 0 },
+  draggedCandy: { position: 'absolute', alignItems: 'center', justifyContent: 'center', zIndex: 20, shadowColor: '#20150E', shadowOpacity: 0.32, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 14 },
+  swappingCandy: { zIndex: 15 },
   crateTile: { width: '100%', height: '100%', backgroundColor: '#A9692D', borderWidth: 3, borderColor: '#73421E', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   crateInset: { position: 'absolute', width: '68%', height: '68%', borderWidth: 4, borderColor: '#D59A54', backgroundColor: '#B87835' },
   crateHorizontal: { position: 'absolute', left: -2, right: -2, height: 5, backgroundColor: '#D89E58', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#885322' },
