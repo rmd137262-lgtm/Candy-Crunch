@@ -194,6 +194,28 @@ export class MatchEngine {
     }
   }
 
+  // Animation ke liye: board ko change kiye bina test karta hai ki swap valid hai ya nahi
+  public canSwap(r1: number, c1: number, r2: number, c2: number): boolean {
+    const tile1 = this.grid[r1]?.[c1];
+    const tile2 = this.grid[r2]?.[c2];
+    const isAdjacent = Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1;
+    if (!tile1 || !tile2 || !isAdjacent || tile1.woodHealth > 0 || tile2.woodHealth > 0) return false;
+
+    // Temporary swap
+    this.grid[r1][c1] = tile2;
+    this.grid[r2][c2] = tile1;
+
+    const groups = this.getMatchGroups();
+    const usesSpecial = tile1.special !== 'none' || tile2.special !== 'none';
+    const isValid = groups.length > 0 || usesSpecial;
+
+    // Revert wapas pehle jaisa
+    this.grid[r1][c1] = tile1;
+    this.grid[r2][c2] = tile2;
+
+    return isValid;
+  }
+
   public swap(r1: number, c1: number, r2: number, c2: number): boolean {
     const tile1 = this.grid[r1]?.[c1];
     const tile2 = this.grid[r2]?.[c2];

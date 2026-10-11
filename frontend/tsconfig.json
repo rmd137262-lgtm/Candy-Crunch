@@ -6,7 +6,9 @@
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "noEmitOnError": false,
+    "skipLibCheck": true
   },
   "include": [
     "**/*.ts",
