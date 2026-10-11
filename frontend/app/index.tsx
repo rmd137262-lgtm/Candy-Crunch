@@ -1,136 +1,95 @@
 
-const { width: MAP_SCREEN_W } = Dimensions.get('window');
-const MAP_W = MAP_SCREEN_W;
-const MAP_H = MAP_SCREEN_W * 2.16;
-
-const WORLD_1_POINTS = [
-  { x: 0.524, y: 0.854 }, { x: 0.672, y: 0.772 }, { x: 0.491, y: 0.694 },
-  { x: 0.333, y: 0.621 }, { x: 0.509, y: 0.567 }, { x: 0.669, y: 0.496 },
-  { x: 0.483, y: 0.431 }, { x: 0.316, y: 0.359 }, { x: 0.504, y: 0.295 },
-  { x: 0.644, y: 0.238 }, { x: 0.779, y: 0.177 },
-];
-
-const MAP_CONFIGS = [
-  { name: 'Candy Village', getBg: () => require('../assets/images/map_bg_1.png'), points: WORLD_1_POINTS },
-  { name: 'Choco Valley', getBg: () => require('../assets/images/map_bg_2.png'), points: WORLD_1_POINTS },
-  { name: 'Blue Ice Bay', getBg: () => require('../assets/images/map_bg_3.png'), points: WORLD_1_POINTS },
-  { name: 'Gummy Jungle', getBg: () => require('../assets/images/map_bg_4.png'), points: WORLD_1_POINTS },
-];
-
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  Image,
-  ImageBackground,
-  SafeAreaView,
-  Platform,
-  Pressable,
-  useWindowDimensions,
-  Animated,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
-  Dimensions,
-  Modal,
-} from 'react-native';
-import { soundManager } from '../src/game/soundManager';
-
-
-interface LevelConfig {
+// --- PROFESSIONAL BURST & SHATTER PARTICLE ENGINE ---
+interface ShatterParticle {
   id: number;
-  moves: number;
-  rows: number;
-  cols: number;
-  crates: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  size: number;
+  rotation: number;
 }
 
-interface LevelConfig {
-  id: number;
-  moves: number;
-  rows: number;
-  cols: number;
-  crates: number;
-}
+// --- ORIGINAL CRUNCHY SHATTER SOUND & BURST SYSTEM ---
+const playCrunchSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const [shards, setShards] = useState<{ id: number; x: number; y: number; vx: number; vy: number; c: string; size: number; rot: number }[]>([]);
+  
+  const triggerBoardBurst = (indices: number[], isCrate: boolean = false) => {
+    try { if (typeof soundManager !== "undefined" && soundManager.playBlast) soundManager.playBlast(); } catch(e){}
+    const tileW = (typeof boardWidth === "number" ? boardWidth : 336) / 8;
+    const newShards: any[] = [];
+    
+    indices.forEach(idx => {
+      const r = Math.floor(idx / 8);
+      const c = idx % 8;
+      const originX = c * tileW + tileW / 2;
+      const originY = r * tileW + tileW / 2;
+      
+      const candyType = boardRef.current ? boardRef.current[idx] : "";
+      let shardColor = "#FF3366";
+      if (isCrate) {
+        shardColor = "#B8652A";
+      } else if (candyType.includes("blue")) {
+        shardColor = "#1E88E5";
+      } else if (candyType.includes("green")) {
+        shardColor = "#43A047";
+      } else if (candyType.includes("yellow") || candyType.includes("star")) {
+        shardColor = "#FDD835";
+      } else if (candyType.includes("purple")) {
+        shardColor = "#8E24AA";
+      } else {
+        shardColor = "#E53935";
+      }
+      
+      const count = isCrate ? 8 : 6;
+      for (let k = 0; k < count; k++) {
+        const angle = (Math.PI * 2 * k) / count + (Math.random() * 0.5 - 0.25);
+        const speed = 2.5 + Math.random() * 3.5;
+        newShards.push({
+          id: Date.now() + Math.random() + k,
+          x: originX,
+          y: originY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 2.5, // initial upward jump
+          c: isCrate ? (k % 2 === 0 ? "#A0522D" : "#CD853F") : shardColor,
+          size: 7 + Math.random() * 5,
+          rot: Math.random() * 360,
+        });
+      }
+    });
 
-const GAME_LEVELS: LevelConfig[] = [
-  { id: 1, moves: 24, rows: 9, cols: 7, crates: 6 },
-  { id: 2, moves: 22, rows: 8, cols: 8, crates: 10 },
-  { id: 3, moves: 24, rows: 8, cols: 7, crates: 14 },
-  { id: 4, moves: 25, rows: 9, cols: 7, crates: 18 },
-  { id: 5, moves: 26, rows: 7, cols: 7, crates: 12 },
-  { id: 6, moves: 25, rows: 9, cols: 8, crates: 20 },
-  { id: 7, moves: 23, rows: 8, cols: 8, crates: 16 },
-  { id: 8, moves: 25, rows: 9, cols: 8, crates: 22 },
-  { id: 9, moves: 26, rows: 8, cols: 6, crates: 16 },
-  { id: 10, moves: 28, rows: 8, cols: 8, crates: 24 },
-];
-
-let COLS = 7;
-let ROWS = 9;
-const STARTING_MOVES = 24;
-
-const CANDY_ASSETS: Record<string, any> = {
-  blue: require('../assets/images/candy_blue.png'),
-  red: require('../assets/images/candy_red.png'),
-  star: require('../assets/images/candy_star.png'),
-  candy_purple_gold: require('../assets/images/candy_purple_gold.png'),
-  candy_star_swirl: require('../assets/images/candy_star_swirl.png'),
-  bomb: require('../assets/images/candy_bomb.png'),
-  egg: require('../assets/images/candy_egg.png'),
-};
-
-const BASE_CANDIES = ['blue', 'red', 'star', 'candy_purple_gold', 'candy_star_swirl'];
-
-const CANDY_PARTICLE_COLORS: Record<string, string> = {
-  blue: '#00E5FF',
-  red: '#FF1744',
-  star: '#FFD600',
-  candy_purple_gold: '#9B5DE5',
-  candy_star_swirl: '#00F5D4',
-  bomb: '#E040FB',
-  egg: '#FF4081',
-};
-
-const CANDY_IMAGE_SCALE: Record<string, { width: number; height: number }> = {
-  blue: { width: 1.1, height: 1.13 },
-  red: { width: 1.1, height: 1.06 },
-  star: { width: 1.12, height: 1.17 },
-  candy_purple_gold: { width: 1.1, height: 1.1 },
-  candy_star_swirl: { width: 1.1, height: 1.1 },
-  bomb: { width: 1.25, height: 1.25 },
-  egg: { width: 1.15, height: 1.15 },
-};
-
-interface LaserLine {
-  id: string;
-  fromX: number;
-  fromY: number;
-  toX: number;
-  toY: number;
-}
-
-export default function App() {
-  const [activeModal, setActiveModal] = useState<'shop' | 'earn' | null>(null);
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const tileSize = Math.max(
-    32,
-    Math.floor(Math.min(screenWidth * 0.8, 380, ((screenHeight - 280) * COLS) / ROWS) / COLS),
-  );
-  const boardWidth = tileSize * COLS;
-  const boardHeight = tileSize * ROWS;
-
-  const candyImageSize = (candy: string) => {
-    const scale = CANDY_IMAGE_SCALE[candy] ?? { width: 1.12, height: 1.12 };
-    return { width: tileSize * scale.width, height: tileSize * scale.height };
+    if (newShards.length > 0) {
+      setShards(prev => [...prev, ...newShards]);
+    }
   };
 
-  const [screen, setScreen] = useState<'home' | 'game'>('home');
-  const [board, setBoard] = useState<string[]>([]);
-  const [currentLevel, setCurrentLevel] = useState(1);
+  useEffect(() => {
+    if (shards.length === 0) return;
+    const interval = setInterval(() => {
+      setShards(prev => {
+        if (prev.length === 0) return [];
+        return prev
+          .map(s => ({
+            ...s,
+            x: s.x + s.vx,
+            y: s.y + s.vy,
+            vy: s.vy + 0.55, // gravity pulling pieces down
+            rot: s.rot + 12,
+            size: Math.max(0, s.size - 0.2), // gradual shrink
+          }))
+          .filter(s => s.size > 1.5);
+      });
+    }, 16);
+    return () => clearInterval(interval);
+  }, [shards.length]);
   const [moves, setMoves] = useState<number>(STARTING_MOVES);
   const [crateCells, setCrateCells] = useState<number[]>([]);
+    const [shatteredPieces, setShatteredPieces] = useState<any[]>([]);
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [result, setResult] = useState<'win' | 'lose' | null>(null);
   const [isMuted, setIsMuted] = useState(soundManager.getMuted());
@@ -208,6 +167,49 @@ export default function App() {
     resetGame(nextLvl);
   };
 
+  
+  const activateColorBomb = () => {
+    try { soundManager.playPop?.(); } catch(e){}
+    setElectricBombActive(true);
+
+    // Board me se ek active goti ka color choose karna
+    const existing = board.filter(b => b && b.type && b.type !== "empty");
+    if (!existing.length) {
+      setElectricBombActive(false);
+      return;
+    }
+    const chosenColor = existing[Math.floor(Math.random() * existing.length)].type;
+
+    // Usi color ki saari gotiyan dhoondhna
+    const blastIndices: number[] = [];
+    board.forEach((b, idx) => {
+      if (b && b.type === chosenColor) {
+        blastIndices.push(idx);
+      }
+    });
+
+    // Gotiyon ko blast karna
+    setMatchedIndicesState(blastIndices);
+    setScore(prev => prev + blastIndices.length * 100);
+
+    // 600ms electric current flash ke baad board refill karna
+    setTimeout(() => {
+      setElectricBombActive(false);
+      try {
+        const nextBoard = [...board];
+        blastIndices.forEach(idx => {
+          if (nextBoard[idx]) nextBoard[idx] = { ...nextBoard[idx], type: "empty" };
+        });
+        if (typeof applyGravityAndFill === "function") {
+          applyGravityAndFill(nextBoard, blastIndices, movesRef.current, false);
+        }
+      } catch (err) {
+        console.log("Gravity err:", err);
+      }
+      setMatchedIndicesState([]);
+    }, 600);
+  };
+
   const resetGame = (targetLvl?: number) => {
     const lvlNum = typeof targetLvl === "number" ? targetLvl : currentLevel;
     const lvlCfg = GAME_LEVELS.find(l => l.id === lvlNum) || GAME_LEVELS[0];
@@ -246,7 +248,37 @@ export default function App() {
 
     crateRef.current = startingCrates;
     setCrateCells(startingCrates);
+    
+        // Sound and shatter trigger on successful match
+        playCrunchSound();
+
+        // Trigger blast particles on match
+    const matchedIdxs: number[] = [];
+    for(let i=0; i<newBoard.length; i++) {
+      if (boardRef.current && boardRef.current[i] && !newBoard[i]) matchedIdxs.push(i);
+    }
+    if (matchedIdxs.length > 0) triggerBoardBurst(matchedIdxs, false);
+    const changed = [];
+    if (boardRef.current) {
+      for (let i = 0; i < newBoard.length; i++) {
+        if (boardRef.current[i] && boardRef.current[i] !== newBoard[i]) changed.push(i);
+      }
+    }
+    if (changed.length > 0) triggerBoardBurst(changed, false);
     setBoard(newBoard);
+    if (typeof shiftOffsets !== "undefined" && Object.keys(shiftOffsets).length > 0) {
+      setSlidingOffsets(shiftOffsets);
+      slideAnimVal.setValue(0);
+      Animated.timing(slideAnimVal, {
+        toValue: 1,
+        duration: 320,
+        useNativeDriver: true,
+      }).start(() => {
+        setSlidingOffsets({});
+      });
+      if (typeof triggerBoardBurst === "function" && brokenCrateList.length > 0) { triggerBoardBurst(brokenCrateList, true); }
+    }
+
     boardRef.current = newBoard;
     // Reset animated values for new board tile count
     if (typeof initAnimations === "function") {
@@ -331,6 +363,9 @@ export default function App() {
   ) => {
     soundManager.playPop();
     setMatchedIndicesState(matchedIndices);
+    if (typeof triggerBoardBurst === "function" && matchedIndices.length > 0) {
+      triggerBoardBurst(matchedIndices, false);
+    }
 
     setTimeout(() => {
       setMatchedIndicesState([]);
@@ -339,6 +374,7 @@ export default function App() {
       let newBoard = [...currentBoard];
       const remainingCrates = new Set(crateRef.current);
       const affectedCols = new Set<number>();
+        const brokenCrateList: number[] = [];
 
       matchedIndices.forEach((idx) => {
         newBoard[idx] = '';
@@ -348,46 +384,86 @@ export default function App() {
 
         [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([nr, nc]) => {
           if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
-            remainingCrates.delete(nr * COLS + nc);
+            brokenCrateList.push(nr * COLS + nc); remainingCrates.delete(nr * COLS + nc);
           }
         });
       });
+      if (typeof triggerBoardBurst === "function" && brokenCrateList.length > 0) { triggerBoardBurst(brokenCrateList, true); }
 
       specialCreations.forEach((special) => {
         newBoard[special.index] = special.type;
       });
 
-      affectedCols.forEach((c) => {
-        let writeRow = ROWS - 1;
-        for (let r = ROWS - 1; r >= 0; r--) {
-          const idx = r * COLS + c;
-          if (remainingCrates.has(idx)) {
-            writeRow = r - 1;
-            continue;
-          }
-          if (newBoard[idx] !== '') {
-            const targetIdx = writeRow * COLS + c;
-            if (targetIdx !== idx) {
-              newBoard[targetIdx] = newBoard[idx];
-              newBoard[idx] = '';
-            }
-            writeRow--;
-          }
-        }
-        for (let r = writeRow; r >= 0; r--) {
-          const idx = r * COLS + c;
-          if (!remainingCrates.has(idx)) {
-            newBoard[idx] = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
-          }
-        }
-      });
+          // Candy Crush Style Diagonal + Vertical Slide Gravity
+    const shiftOffsets: {[key: number]: number} = {};
+    let boardChanged = true;
+    let passes = 0;
+    while (boardChanged && passes < 12) {
+      boardChanged = false;
+      passes++;
 
-      const updatedCrates = Array.from(remainingCrates);
+      // Bottom-up traverse taaki pehle niche ki khali jagah bhare
+      for (let r = ROWS - 1; r >= 1; r--) {
+        for (let c = 0; c < COLS; c++) {
+          const idx = r * COLS + c;
+          if (remainingCrates.has(idx)) continue; // crate cell skip
+
+          if (!newBoard[idx] || newBoard[idx] === "" || newBoard[idx] === "empty") {
+            // 1. Direct Up check
+            const upIdx = (r - 1) * COLS + c;
+            if (!remainingCrates.has(upIdx) && newBoard[upIdx] && newBoard[upIdx] !== "" && newBoard[upIdx] !== "empty") {
+              newBoard[idx] = newBoard[upIdx];
+              newBoard[upIdx] = "";
+              affectedCols.add(c);
+              boardChanged = true;
+            } else if (remainingCrates.has(upIdx) || !newBoard[upIdx] || newBoard[upIdx] === "") {
+              // 2. Diagonal Slide: Upar blocked hai toh Left-Up ya Right-Up se candy slide karegi
+              const leftUp = (c > 0 && !remainingCrates.has((r - 1) * COLS + (c - 1))) ? (r - 1) * COLS + (c - 1) : null;
+              const rightUp = (c < COLS - 1 && !remainingCrates.has((r - 1) * COLS + (c + 1))) ? (r - 1) * COLS + (c + 1) : null;
+
+              if (leftUp !== null && newBoard[leftUp] && newBoard[leftUp] !== "" && newBoard[leftUp] !== "empty") {
+                newBoard[idx] = newBoard[leftUp];
+                newBoard[leftUp] = "";
+                affectedCols.add(c);
+                affectedCols.add(c - 1); try { soundManager.playPop?.(); } catch(e){}
+                boardChanged = true;
+              } else if (rightUp !== null && newBoard[rightUp] && newBoard[rightUp] !== "" && newBoard[rightUp] !== "empty") {
+                newBoard[idx] = newBoard[rightUp];
+                newBoard[rightUp] = "";
+                shiftOffsets[idx] = 42; // Right side se slide hone ka offset
+                affectedCols.add(c);
+                affectedCols.add(c + 1);
+                boardChanged = true;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Top Row and remaining empty unblocked cells ko fresh candies se refill karna
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const idx = r * COLS + c;
+        if (!remainingCrates.has(idx) && (!newBoard[idx] || newBoard[idx] === "" || newBoard[idx] === "empty")) {
+          newBoard[idx] = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
+          affectedCols.add(c);
+        }
+      }
+    }
+
+    const updatedCrates = Array.from(remainingCrates);
       crateRef.current = updatedCrates;
       setCrateCells(updatedCrates);
       setMoves(remainingMoves);
       movesRef.current = remainingMoves;
-      setBoard(newBoard);
+      // Trigger blast particles on match
+    const matchedIdxs: number[] = [];
+    for(let i=0; i<newBoard.length; i++) {
+      if (boardRef.current && boardRef.current[i] && !newBoard[i]) matchedIdxs.push(i);
+    }
+    if (matchedIdxs.length > 0) triggerBoardBurst(matchedIdxs, false);
+    setBoard(newBoard);
       boardRef.current = newBoard;
 
       const anims: Animated.CompositeAnimation[] = [];
@@ -484,9 +560,10 @@ export default function App() {
         const cX = (cIdx % COLS) * tileSize + tileSize / 2;
         const cY = Math.floor(cIdx / COLS) * tileSize + tileSize / 2;
         rainbowColors.forEach((colorHex) => {
-          triggerParticles(cX, cY, colorHex);
+          try { if (typeof triggerParticles === "function") try { if (typeof triggerParticles === "function") triggerParticles(cX, cY, colorHex); } catch(e){}; } catch(e){}
         });
       });
+      if (typeof triggerBoardBurst === "function" && brokenCrateList.length > 0) { triggerBoardBurst(brokenCrateList, true); }
 
       setLasers([]);
       setSpinningBombIndex(null);
@@ -780,13 +857,14 @@ export default function App() {
           </View>
 
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Return to home screen"
-            onPress={() => setScreen('home')}
-            style={styles.homeButton}
-          >
-            <Text style={styles.homeButtonText}>⌂</Text>
-          </Pressable>
+          accessibilityRole="button"
+          accessibilityLabel="Return to home screen"
+          onPress={() => { soundManager.playPop(); setScreen("home"); }}
+          style={[styles.homeButton, { backgroundColor: "#FF3366", borderColor: "#FFF", borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 12, minWidth: 70, height: 38, borderRadius: 19 }]}
+        >
+          <Text style={{ color: "#FFF", fontSize: 16, fontWeight: "900", marginRight: 4 }}>◀</Text>
+          <Text style={{ color: "#FFF", fontSize: 13, fontWeight: "bold" }}>Back</Text>
+        </Pressable>
         </View>
         <View style={styles.checkeredTrim}>
           {Array.from({ length: 22 }, (_, index) => (
@@ -805,7 +883,74 @@ export default function App() {
             onPointerUp={handlePointerUp}
             onTouchEnd={handlePointerUp}
           >
-            {board.map((item, index) => {
+            
+        {/* Master Burst Shatter Overlay */}
+        {burstDots.map(d => (
+          <View
+            key={d.id}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: d.x,
+              top: d.y,
+              width: 10,
+              height: 10,
+              borderRadius: 3,
+              backgroundColor: d.c,
+              zIndex: 999999,
+              elevation: 50,
+              shadowColor: d.c,
+              shadowRadius: 6,
+              shadowOpacity: 0.9,
+            }}
+          />
+        ))}
+
+        
+        {/* Full Visible Shatter Burst Pieces */}
+        {burstDots.length > 0 && burstDots.map(d => (
+          <View
+            key={d.id}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: d.x,
+              top: d.y,
+              width: d.size,
+              height: d.size,
+              borderRadius: d.size > 8 ? 3 : d.size / 2,
+              backgroundColor: d.c,
+              zIndex: 9999999,
+              elevation: 99,
+              borderWidth: 1.5,
+              borderColor: "#FFFFFF",
+            }}
+          />
+        ))}
+
+        
+        {/* Real Flying Shards that Scatter and Drop */}
+        {shards.map(s => (
+          <View
+            key={s.id}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: s.x,
+              top: s.y,
+              width: s.size,
+              height: s.size * 0.7,
+              borderRadius: 2,
+              backgroundColor: s.c,
+              transform: [{ rotate: `${s.rot}deg` }],
+              zIndex: 999999,
+              elevation: 99,
+            }}
+          />
+        ))}
+
+        {board.map((item, index) => {
+        
               const col = index % COLS;
               const isMatchedNow = matchedIndicesState.includes(index);
 
@@ -832,7 +977,11 @@ export default function App() {
                       style={[
                         styles.candyClip,
                         { width: tileSize, height: tileSize },
-                        isMatchedNow && styles.burstCandy,
+                        isMatchedNow && {
+                    transform: [{ scale: 1.28 }],
+                    opacity: 0.25,
+                    
+                  },
                         {
                           transform: [
                             {
@@ -983,6 +1132,150 @@ export default function App() {
             ) : null}
           </View>
         </View>
+        
+      {/* Electric Lightning Screen Flash */}
+      {electricBombActive && (
+        <View pointerEvents="none" style={{
+          position: "absolute",
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "rgba(0, 229, 255, 0.45)",
+          borderWidth: 6,
+          borderColor: "#FFF700",
+          zIndex: 99999,
+          justifyContent: "center",
+          alignItems: "center"
+        }}>
+          <Text style={{ fontSize: 48 }}>⚡⚡⚡</Text>
+          <Text style={{ color: "#FFF", fontSize: 22, fontWeight: "900", textShadowColor: "#000", textShadowRadius: 6 }}>ELECTRIC COLOR BLAST!</Text>
+        </View>
+      )}
+
+        {/* Bottom Booster / Power-up Bar */}
+        <View style={{
+          flexDirection: "row",
+          justifyContent: "space-around",
+          alignItems: "center",
+          width: "92%",
+          maxWidth: 380,
+          marginTop: 12,
+          marginBottom: 10,
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          backgroundColor: "rgba(20, 10, 40, 0.88)",
+          borderRadius: 24,
+          borderWidth: 2,
+          borderColor: "#FFD700",
+          alignSelf: "center",
+        }}>
+          {/* Booster 1: Haath ka panja */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              soundManager.playPop();
+              alert("🖐️ Hand Booster: Kisi bhi do candies ko swap karein!");
+            }}
+            style={{ alignItems: "center", justifyContent: "center" }}
+          >
+            <View style={{
+              width: 52,
+              height: 52,
+              borderRadius: 26,
+              backgroundColor: "#7B2CBF",
+              justifyContent: "center",
+              alignItems: "center",
+              borderWidth: 2,
+              borderColor: "#E0AAFF",
+            }}>
+              <Text style={{ fontSize: 26 }}>🖐️</Text>
+              <View style={{
+                position: "absolute",
+                top: -4,
+                right: -4,
+                backgroundColor: "#FF007F",
+                borderRadius: 10,
+                paddingHorizontal: 5,
+                paddingVertical: 1,
+                borderWidth: 1,
+                borderColor: "#FFF"
+              }}>
+                <Text style={{ color: "#FFF", fontSize: 10, fontWeight: "bold" }}>3</Text>
+              </View>
+            </View>
+            <Text style={{ color: "#FFF", fontSize: 11, fontWeight: "bold", marginTop: 4 }}>Hand</Text>
+          </TouchableOpacity>
+
+          {/* Booster 2: Colour Bomb */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={activateColorBomb}
+            style={{ alignItems: "center", justifyContent: "center" }}
+          >
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: "#D90429",
+              justifyContent: "center",
+              alignItems: "center",
+              borderWidth: 2.5,
+              borderColor: "#FFD166",
+            }}>
+              <Text style={{ fontSize: 28 }}>💣</Text>
+              <View style={{
+                position: "absolute",
+                top: -4,
+                right: -4,
+                backgroundColor: "#06D6A0",
+                borderRadius: 10,
+                paddingHorizontal: 5,
+                paddingVertical: 1,
+                borderWidth: 1,
+                borderColor: "#000"
+              }}>
+                <Text style={{ color: "#000", fontSize: 10, fontWeight: "bold" }}>2</Text>
+              </View>
+            </View>
+            <Text style={{ color: "#FFD166", fontSize: 11, fontWeight: "900", marginTop: 4 }}>Bomb</Text>
+          </TouchableOpacity>
+
+          {/* Booster 3: Energy */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              try { soundManager.playPop?.(); } catch(e){}
+              alert("⚡ Energy Zap: Powerful line blast karein!");
+            }}
+            style={{ alignItems: "center", justifyContent: "center" }}
+          >
+            <View style={{
+              width: 52,
+              height: 52,
+              borderRadius: 26,
+              backgroundColor: "#0077B6",
+              justifyContent: "center",
+              alignItems: "center",
+              borderWidth: 2,
+              borderColor: "#90E0EF",
+            }}>
+              <Text style={{ fontSize: 26 }}>⚡</Text>
+              <View style={{
+                position: "absolute",
+                top: -4,
+                right: -4,
+                backgroundColor: "#FFB703",
+                borderRadius: 10,
+                paddingHorizontal: 5,
+                paddingVertical: 1,
+                borderWidth: 1,
+                borderColor: "#FFF"
+              }}>
+                <Text style={{ color: "#000", fontSize: 10, fontWeight: "bold" }}>5</Text>
+              </View>
+            </View>
+            <Text style={{ color: "#FFF", fontSize: 11, fontWeight: "bold", marginTop: 4 }}>Energy</Text>
+          </TouchableOpacity>
+        </View>
+
         <Text style={styles.boardHint}>Match 5 candies to make a Color Bumper Bomb!</Text>
       </View>
 
@@ -1011,6 +1304,10 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  cellBurst: {
+    transform: [{ scale: 1.18 }],
+    opacity: 0.85,
+  },
   homeContainer: { flex: 1 },
   homeBackground: { flex: 1, width: '100%', height: '100%' },
   homeShade: { flex: 1, backgroundColor: 'rgba(0,0,0,0.15)', justifyContent: 'center', alignItems: 'center' },
@@ -1065,7 +1362,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(35, 58, 87, 0.35)',
   },
   candyClip: { justifyContent: 'center', alignItems: 'center' },
-  burstCandy: { opacity: 0 },
+  burstCandy: {
+    transform: [{ scale: 1.25 }],
+    opacity: 0.3,
+  },
   particleContainer: {
     position: 'absolute',
     width: '100%',

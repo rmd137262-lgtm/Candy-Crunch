@@ -35,11 +35,11 @@ args = "Start application"
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "packager.installForLanguage"
+args = ""
 
 [workflows.workflow.metadata]
 outputType = "webview"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd frontend && npm run web -- --port 5000 --host lan"
-waitForPort = 5000
