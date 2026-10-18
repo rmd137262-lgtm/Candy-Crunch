@@ -32,4 +32,4 @@ jobs:
           npx eas build --platform android --profile production --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          
+          EAS_BUILD_NO_EXPO_GO_WARNING: "true"          
