@@ -23,7 +23,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.rashiddigitalstudio.candycrunch"
+      "package": "com.rashiddigitalstudio.candycrunch",
       "versionCode": 2
     },
     "web": {
@@ -33,14 +33,6 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "kotlinVersion": "1.9.24"
-          }
-        }
-      ],
       [
         "expo-splash-screen",
         {
