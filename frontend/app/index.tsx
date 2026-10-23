@@ -1,98 +1,133 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  Pressable,
+  Animated,
+  StyleSheet,
+  ScrollView,
+  Modal,
+  SafeAreaView,
+  StatusBar,
+  Dimensions,
+  Platform,
+} from 'react-native';
 
-// --- PROFESSIONAL BURST & SHATTER PARTICLE ENGINE ---
-interface ShatterParticle {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  color: string;
-  size: number;
-  rotation: number;
-}
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- ORIGINAL CRUNCHY SHATTER SOUND & BURST SYSTEM ---
+let ROWS = 9;
+let COLS = 7;
+const STARTING_MOVES = 26;
+const tileSize = Math.floor((SCREEN_WIDTH - 32) / 7);
+const boardWidth = tileSize * 7;
+const boardHeight = tileSize * 9;
+
+const MAP_W = SCREEN_WIDTH;
+const MAP_H = 1200;
+
+const BASE_CANDIES = ['red', 'blue', 'egg', 'star', 'purple_gold'];
+
+const CANDY_ASSETS: { [key: string]: any } = {
+  red: require('../assets/images/candy_red.png'),
+  blue: require('../assets/images/candy_blue.png'),
+  egg: require('../assets/images/candy_egg.png'),
+  star: require('../assets/images/candy_star.png'),
+  purple_gold: require('../assets/images/candy_purple_gold.png'),
+  bomb: require('../assets/images/candy_bomb.png'),
+};
+
+const candyImageSize = (item: string) => ({
+  width: tileSize * 0.82,
+  height: tileSize * 0.82,
+});
+
+const CANDY_PARTICLE_COLORS: { [key: string]: string } = {
+  red: '#FF1744',
+  blue: '#00E5FF',
+  egg: '#00E676',
+  star: '#FFEA00',
+  purple_gold: '#D500F9',
+  bomb: '#FFFFFF',
+};
+
+const MAP_CONFIGS = [
+  {
+    name: 'Candy Land',
+    bg: require('../assets/images/map_bg.png'),
+    points: [
+      { x: 0.28, y: 0.92 },
+      { x: 0.42, y: 0.85 },
+      { x: 0.62, y: 0.78 },
+      { x: 0.45, y: 0.71 },
+      { x: 0.26, y: 0.64 },
+      { x: 0.24, y: 0.55 },
+      { x: 0.46, y: 0.48 },
+      { x: 0.65, y: 0.41 },
+      { x: 0.72, y: 0.32 },
+      { x: 0.52, y: 0.24 },
+      { x: 0.32, y: 0.16 },
+    ],
+  },
+];
+
+const GAME_LEVELS = [
+  { id: 1, moves: 26, cols: 7, rows: 9 },
+  { id: 2, moves: 25, cols: 7, rows: 9 },
+  { id: 3, moves: 25, cols: 7, rows: 9 },
+];
+
+const soundManager = {
+  playPop: () => playCrunchSound(),
+  playBlast: () => playCrunchSound(),
+  playSwap: () => {},
+  playWin: () => {},
+  playOver: () => {},
+  playBGM: () => {},
+  getMuted: () => false,
+};
+
 const playCrunchSound = () => {
   try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
-    const [shards, setShards] = useState<{ id: number; x: number; y: number; vx: number; vy: number; c: string; size: number; rot: number }[]>([]);
-  
-  const triggerBoardBurst = (indices: number[], isCrate: boolean = false) => {
-    try { if (typeof soundManager !== "undefined" && soundManager.playBlast) soundManager.playBlast(); } catch(e){}
-    const tileW = (typeof boardWidth === "number" ? boardWidth : 336) / 8;
-    const newShards: any[] = [];
-    
-    indices.forEach(idx => {
-      const r = Math.floor(idx / 8);
-      const c = idx % 8;
-      const originX = c * tileW + tileW / 2;
-      const originY = r * tileW + tileW / 2;
-      
-      const candyType = boardRef.current ? boardRef.current[idx] : "";
-      let shardColor = "#FF3366";
-      if (isCrate) {
-        shardColor = "#B8652A";
-      } else if (candyType.includes("blue")) {
-        shardColor = "#1E88E5";
-      } else if (candyType.includes("green")) {
-        shardColor = "#43A047";
-      } else if (candyType.includes("yellow") || candyType.includes("star")) {
-        shardColor = "#FDD835";
-      } else if (candyType.includes("purple")) {
-        shardColor = "#8E24AA";
-      } else {
-        shardColor = "#E53935";
-      }
-      
-      const count = isCrate ? 8 : 6;
-      for (let k = 0; k < count; k++) {
-        const angle = (Math.PI * 2 * k) / count + (Math.random() * 0.5 - 0.25);
-        const speed = 2.5 + Math.random() * 3.5;
-        newShards.push({
-          id: Date.now() + Math.random() + k,
-          x: originX,
-          y: originY,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 2.5, // initial upward jump
-          c: isCrate ? (k % 2 === 0 ? "#A0522D" : "#CD853F") : shardColor,
-          size: 7 + Math.random() * 5,
-          rot: Math.random() * 360,
-        });
-      }
-    });
-
-    if (newShards.length > 0) {
-      setShards(prev => [...prev, ...newShards]);
+    if (typeof window !== "undefined") {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
     }
-  };
+  } catch (e) {}
+};
 
-  useEffect(() => {
-    if (shards.length === 0) return;
-    const interval = setInterval(() => {
-      setShards(prev => {
-        if (prev.length === 0) return [];
-        return prev
-          .map(s => ({
-            ...s,
-            x: s.x + s.vx,
-            y: s.y + s.vy,
-            vy: s.vy + 0.55, // gravity pulling pieces down
-            rot: s.rot + 12,
-            size: Math.max(0, s.size - 0.2), // gradual shrink
-          }))
-          .filter(s => s.size > 1.5);
-      });
-    }, 16);
-    return () => clearInterval(interval);
-  }, [shards.length]);
+interface LaserLine {
+  id: string;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+}
+
+export default function GameScreen() {
+  const [screen, setScreen] = useState<'home' | 'game'>('home');
+  const [currentLevel, setCurrentLevel] = useState<number>(1);
+  const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [board, setBoard] = useState<string[]>([]);
+  const [shards, setShards] = useState<any[]>([]);
+  const [burstDots, setBurstDots] = useState<any[]>([]);
+  const [electricBombActive, setElectricBombActive] = useState(false);
+  const [score, setScore] = useState(0);
   const [moves, setMoves] = useState<number>(STARTING_MOVES);
   const [crateCells, setCrateCells] = useState<number[]>([]);
-    const [shatteredPieces, setShatteredPieces] = useState<any[]>([]);
   const [gameOver, setGameOver] = useState<boolean>(false);
   const [result, setResult] = useState<'win' | 'lose' | null>(null);
-  const [isMuted, setIsMuted] = useState(soundManager.getMuted());
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
   const [lasers, setLasers] = useState<LaserLine[]>([]);
@@ -113,8 +148,7 @@ const playCrunchSound = () => {
   const swapPosition = useRef(new Animated.ValueXY()).current;
   const isAnimatingRef = useRef(false);
   const spinAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
+    useEffect(() => {
     Animated.loop(
       Animated.timing(spinAnim, {
         toValue: 1,
@@ -141,6 +175,77 @@ const playCrunchSound = () => {
     gameOverRef.current = gameOver;
   }, [gameOver]);
 
+  // Goti swipe/match hone par phatkar bikharne wala physics engine
+  const triggerBoardBurst = (indices: number[], isCrateBreak = false) => {
+    playCrunchSound();
+    const newShards: any[] = [];
+    const newDots: any[] = [];
+    const now = Date.now();
+
+    indices.forEach((idx) => {
+      const col = idx % COLS;
+      const row = Math.floor(idx / COLS);
+      const cx = col * tileSize + tileSize / 2;
+      const cy = row * tileSize + tileSize / 2;
+      const itemKey = boardRef.current[idx];
+      const pColor = isCrateBreak ? '#8D6E63' : (CANDY_PARTICLE_COLORS[itemKey] || '#FF1744');
+
+      // Shard pieces (flying & scattering)
+      for (let i = 0; i < 8; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 7 + 3;
+        newShards.push({
+          id: `${now}_${idx}_${i}`,
+          x: cx,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 2.5,
+          size: Math.random() * 8 + 5,
+          c: pColor,
+          rot: Math.random() * 360,
+        });
+      }
+
+      // Burst flash dots
+      for (let j = 0; j < 4; j++) {
+        newDots.push({
+          id: `dot_${now}_${idx}_${j}`,
+          x: cx + (Math.random() - 0.5) * 20,
+          y: cy + (Math.random() - 0.5) * 20,
+          size: Math.random() * 6 + 4,
+          c: '#FFFFFF',
+        });
+      }
+    });
+
+    setShards((prev) => [...prev, ...newShards]);
+    setBurstDots((prev) => [...prev, ...newDots]);
+
+    setTimeout(() => {
+      setBurstDots([]);
+    }, 280);
+  };
+
+  useEffect(() => {
+    if (shards.length === 0) return;
+    const interval = setInterval(() => {
+      setShards((prev) => {
+        if (prev.length === 0) return [];
+        return prev
+          .map((s) => ({
+            ...s,
+            x: s.x + s.vx,
+            y: s.y + s.vy,
+            vy: s.vy + 0.55, // Gravity drop
+            rot: s.rot + 12,
+            size: Math.max(0, s.size - 0.2),
+          }))
+          .filter((s) => s.size > 1.5);
+      });
+    }, 16);
+    return () => clearInterval(interval);
+  }, [shards.length]);
+
   const makeCrates = (crateCount = 8, activeRows = ROWS, activeCols = COLS) => {
     const total = activeRows * activeCols;
     const crates: number[] = [];
@@ -153,66 +258,15 @@ const playCrunchSound = () => {
     return crates;
   };
 
-  const old_makeCrates = () => {
-    const cells: number[] = [];
-    for (let r = ROWS - 3; r < ROWS; r++) {
-      for (let c = 2; c < 5; c++) cells.push(r * COLS + c);
-    }
-    return cells;
-  };
-
   const nextLevel = () => {
     const nextLvl = currentLevel < 10 ? currentLevel + 1 : 1;
     setCurrentLevel(nextLvl);
     resetGame(nextLvl);
   };
 
-  
-  const activateColorBomb = () => {
-    try { soundManager.playPop?.(); } catch(e){}
-    setElectricBombActive(true);
-
-    // Board me se ek active goti ka color choose karna
-    const existing = board.filter(b => b && b.type && b.type !== "empty");
-    if (!existing.length) {
-      setElectricBombActive(false);
-      return;
-    }
-    const chosenColor = existing[Math.floor(Math.random() * existing.length)].type;
-
-    // Usi color ki saari gotiyan dhoondhna
-    const blastIndices: number[] = [];
-    board.forEach((b, idx) => {
-      if (b && b.type === chosenColor) {
-        blastIndices.push(idx);
-      }
-    });
-
-    // Gotiyon ko blast karna
-    setMatchedIndicesState(blastIndices);
-    setScore(prev => prev + blastIndices.length * 100);
-
-    // 600ms electric current flash ke baad board refill karna
-    setTimeout(() => {
-      setElectricBombActive(false);
-      try {
-        const nextBoard = [...board];
-        blastIndices.forEach(idx => {
-          if (nextBoard[idx]) nextBoard[idx] = { ...nextBoard[idx], type: "empty" };
-        });
-        if (typeof applyGravityAndFill === "function") {
-          applyGravityAndFill(nextBoard, blastIndices, movesRef.current, false);
-        }
-      } catch (err) {
-        console.log("Gravity err:", err);
-      }
-      setMatchedIndicesState([]);
-    }, 600);
-  };
-
   const resetGame = (targetLvl?: number) => {
     const lvlNum = typeof targetLvl === "number" ? targetLvl : currentLevel;
-    const lvlCfg = GAME_LEVELS.find(l => l.id === lvlNum) || GAME_LEVELS[0];
+    const lvlCfg = GAME_LEVELS.find((l) => l.id === lvlNum) || GAME_LEVELS[0];
     COLS = lvlCfg.cols;
     ROWS = lvlCfg.rows;
     setMoves(lvlCfg.moves);
@@ -248,42 +302,8 @@ const playCrunchSound = () => {
 
     crateRef.current = startingCrates;
     setCrateCells(startingCrates);
-    
-        // Sound and shatter trigger on successful match
-        playCrunchSound();
-
-        // Trigger blast particles on match
-    const matchedIdxs: number[] = [];
-    for(let i=0; i<newBoard.length; i++) {
-      if (boardRef.current && boardRef.current[i] && !newBoard[i]) matchedIdxs.push(i);
-    }
-    if (matchedIdxs.length > 0) triggerBoardBurst(matchedIdxs, false);
-    const changed = [];
-    if (boardRef.current) {
-      for (let i = 0; i < newBoard.length; i++) {
-        if (boardRef.current[i] && boardRef.current[i] !== newBoard[i]) changed.push(i);
-      }
-    }
-    if (changed.length > 0) triggerBoardBurst(changed, false);
     setBoard(newBoard);
-    if (typeof shiftOffsets !== "undefined" && Object.keys(shiftOffsets).length > 0) {
-      setSlidingOffsets(shiftOffsets);
-      slideAnimVal.setValue(0);
-      Animated.timing(slideAnimVal, {
-        toValue: 1,
-        duration: 320,
-        useNativeDriver: true,
-      }).start(() => {
-        setSlidingOffsets({});
-      });
-      if (typeof triggerBoardBurst === "function" && brokenCrateList.length > 0) { triggerBoardBurst(brokenCrateList, true); }
-    }
-
     boardRef.current = newBoard;
-    // Reset animated values for new board tile count
-    if (typeof initAnimations === "function") {
-      initAnimations(newBoard.length);
-    }
     setMoves(STARTING_MOVES);
     movesRef.current = STARTING_MOVES;
     setGameOver(false);
@@ -291,6 +311,44 @@ const playCrunchSound = () => {
     setResult(null);
     setLasers([]);
     setMatchedIndicesState([]);
+    setShards([]);
+    setBurstDots([]);
+  };
+    const activateColorBomb = () => {
+    try { soundManager.playPop?.(); } catch(e){}
+    setElectricBombActive(true);
+
+    const existing = board.filter((b) => b && b !== 'bomb');
+    if (!existing.length) {
+      setElectricBombActive(false);
+      return;
+    }
+    const chosenColor = existing[Math.floor(Math.random() * existing.length)];
+
+    const blastIndices: number[] = [];
+    board.forEach((b, idx) => {
+      if (b === chosenColor) {
+        blastIndices.push(idx);
+      }
+    });
+
+    setMatchedIndicesState(blastIndices);
+    setScore((prev) => prev + blastIndices.length * 100);
+    triggerBoardBurst(blastIndices, false);
+
+    setTimeout(() => {
+      setElectricBombActive(false);
+      try {
+        let nextBoard = [...board];
+        blastIndices.forEach((idx) => {
+          nextBoard[idx] = '';
+        });
+        applyGravityAndFill(nextBoard, blastIndices, movesRef.current, []);
+      } catch (err) {
+        console.log('Gravity err:', err);
+      }
+      setMatchedIndicesState([]);
+    }, 600);
   };
 
   const getIndicesMatchesWithSpecials = (currentBoard: string[], blockedCells = crateRef.current) => {
@@ -355,6 +413,7 @@ const playCrunchSound = () => {
     return { matched: Array.from(matched), specialCreations };
   };
 
+  // Aapka Original Diagonal Slide + Vertical Cascade Engine
   const applyGravityAndFill = (
     currentBoard: string[],
     matchedIndices: number[],
@@ -363,7 +422,7 @@ const playCrunchSound = () => {
   ) => {
     soundManager.playPop();
     setMatchedIndicesState(matchedIndices);
-    if (typeof triggerBoardBurst === "function" && matchedIndices.length > 0) {
+    if (matchedIndices.length > 0) {
       triggerBoardBurst(matchedIndices, false);
     }
 
@@ -374,7 +433,7 @@ const playCrunchSound = () => {
       let newBoard = [...currentBoard];
       const remainingCrates = new Set(crateRef.current);
       const affectedCols = new Set<number>();
-        const brokenCrateList: number[] = [];
+      const brokenCrateList: number[] = [];
 
       matchedIndices.forEach((idx) => {
         newBoard[idx] = '';
@@ -384,99 +443,99 @@ const playCrunchSound = () => {
 
         [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([nr, nc]) => {
           if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
-            brokenCrateList.push(nr * COLS + nc); remainingCrates.delete(nr * COLS + nc);
+            const neighbor = nr * COLS + nc;
+            if (remainingCrates.has(neighbor)) {
+              brokenCrateList.push(neighbor);
+              remainingCrates.delete(neighbor);
+            }
           }
         });
       });
-      if (typeof triggerBoardBurst === "function" && brokenCrateList.length > 0) { triggerBoardBurst(brokenCrateList, true); }
+
+      if (brokenCrateList.length > 0) {
+        triggerBoardBurst(brokenCrateList, true);
+      }
 
       specialCreations.forEach((special) => {
         newBoard[special.index] = special.type;
       });
 
-          // Candy Crush Style Diagonal + Vertical Slide Gravity
-    const shiftOffsets: {[key: number]: number} = {};
-    let boardChanged = true;
-    let passes = 0;
-    while (boardChanged && passes < 12) {
-      boardChanged = false;
-      passes++;
+      // Original Diagonal + Vertical Slide Physics
+      let boardChanged = true;
+      let passes = 0;
+      while (boardChanged && passes < 12) {
+        boardChanged = false;
+        passes++;
 
-      // Bottom-up traverse taaki pehle niche ki khali jagah bhare
-      for (let r = ROWS - 1; r >= 1; r--) {
-        for (let c = 0; c < COLS; c++) {
-          const idx = r * COLS + c;
-          if (remainingCrates.has(idx)) continue; // crate cell skip
+        for (let r = ROWS - 1; r >= 1; r--) {
+          for (let c = 0; c < COLS; c++) {
+            const idx = r * COLS + c;
+            if (remainingCrates.has(idx)) continue;
 
-          if (!newBoard[idx] || newBoard[idx] === "" || newBoard[idx] === "empty") {
-            // 1. Direct Up check
-            const upIdx = (r - 1) * COLS + c;
-            if (!remainingCrates.has(upIdx) && newBoard[upIdx] && newBoard[upIdx] !== "" && newBoard[upIdx] !== "empty") {
-              newBoard[idx] = newBoard[upIdx];
-              newBoard[upIdx] = "";
-              affectedCols.add(c);
-              boardChanged = true;
-            } else if (remainingCrates.has(upIdx) || !newBoard[upIdx] || newBoard[upIdx] === "") {
-              // 2. Diagonal Slide: Upar blocked hai toh Left-Up ya Right-Up se candy slide karegi
-              const leftUp = (c > 0 && !remainingCrates.has((r - 1) * COLS + (c - 1))) ? (r - 1) * COLS + (c - 1) : null;
-              const rightUp = (c < COLS - 1 && !remainingCrates.has((r - 1) * COLS + (c + 1))) ? (r - 1) * COLS + (c + 1) : null;
-
-              if (leftUp !== null && newBoard[leftUp] && newBoard[leftUp] !== "" && newBoard[leftUp] !== "empty") {
-                newBoard[idx] = newBoard[leftUp];
-                newBoard[leftUp] = "";
+            if (!newBoard[idx] || newBoard[idx] === '' || newBoard[idx] === 'empty') {
+              const upIdx = (r - 1) * COLS + c;
+              if (!remainingCrates.has(upIdx) && newBoard[upIdx] && newBoard[upIdx] !== '' && newBoard[upIdx] !== 'empty') {
+                newBoard[idx] = newBoard[upIdx];
+                newBoard[upIdx] = '';
                 affectedCols.add(c);
-                affectedCols.add(c - 1); try { soundManager.playPop?.(); } catch(e){}
                 boardChanged = true;
-              } else if (rightUp !== null && newBoard[rightUp] && newBoard[rightUp] !== "" && newBoard[rightUp] !== "empty") {
-                newBoard[idx] = newBoard[rightUp];
-                newBoard[rightUp] = "";
-                shiftOffsets[idx] = 42; // Right side se slide hone ka offset
-                affectedCols.add(c);
-                affectedCols.add(c + 1);
-                boardChanged = true;
+              } else if (remainingCrates.has(upIdx) || !newBoard[upIdx] || newBoard[upIdx] === '') {
+                const leftUp = c > 0 && !remainingCrates.has((r - 1) * COLS + (c - 1)) ? (r - 1) * COLS + (c - 1) : null;
+                const rightUp = c < COLS - 1 && !remainingCrates.has((r - 1) * COLS + (c + 1)) ? (r - 1) * COLS + (c + 1) : null;
+
+                if (leftUp !== null && newBoard[leftUp] && newBoard[leftUp] !== '' && newBoard[leftUp] !== 'empty') {
+                  newBoard[idx] = newBoard[leftUp];
+                  newBoard[leftUp] = '';
+                  affectedCols.add(c);
+                  affectedCols.add(c - 1);
+                  try { soundManager.playPop?.(); } catch (e) {}
+                  boardChanged = true;
+                } else if (rightUp !== null && newBoard[rightUp] && newBoard[rightUp] !== '' && newBoard[rightUp] !== 'empty') {
+                  newBoard[idx] = newBoard[rightUp];
+                  newBoard[rightUp] = '';
+                  affectedCols.add(c);
+                  affectedCols.add(c + 1);
+                  boardChanged = true;
+                }
               }
             }
           }
         }
       }
-    }
 
-    // Top Row and remaining empty unblocked cells ko fresh candies se refill karna
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const idx = r * COLS + c;
-        if (!remainingCrates.has(idx) && (!newBoard[idx] || newBoard[idx] === "" || newBoard[idx] === "empty")) {
-          newBoard[idx] = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
-          affectedCols.add(c);
+      // Top refills
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const idx = r * COLS + c;
+          if (!remainingCrates.has(idx) && (!newBoard[idx] || newBoard[idx] === '' || newBoard[idx] === 'empty')) {
+            newBoard[idx] = BASE_CANDIES[Math.floor(Math.random() * BASE_CANDIES.length)];
+            affectedCols.add(c);
+          }
         }
       }
-    }
 
-    const updatedCrates = Array.from(remainingCrates);
+      const updatedCrates = Array.from(remainingCrates);
       crateRef.current = updatedCrates;
       setCrateCells(updatedCrates);
       setMoves(remainingMoves);
       movesRef.current = remainingMoves;
-      // Trigger blast particles on match
-    const matchedIdxs: number[] = [];
-    for(let i=0; i<newBoard.length; i++) {
-      if (boardRef.current && boardRef.current[i] && !newBoard[i]) matchedIdxs.push(i);
-    }
-    if (matchedIdxs.length > 0) triggerBoardBurst(matchedIdxs, false);
-    setBoard(newBoard);
+
+      setBoard(newBoard);
       boardRef.current = newBoard;
 
       const anims: Animated.CompositeAnimation[] = [];
       affectedCols.forEach((col) => {
-        columnDropAnims[col].setValue(-1.5);
-        anims.push(
-          Animated.spring(columnDropAnims[col], {
-            toValue: 0,
-            friction: 5,
-            tension: 40,
-            useNativeDriver: true,
-          })
-        );
+        if (columnDropAnims[col]) {
+          columnDropAnims[col].setValue(-1.5);
+          anims.push(
+            Animated.spring(columnDropAnims[col], {
+              toValue: 0,
+              friction: 5,
+              tension: 40,
+              useNativeDriver: true,
+            })
+          );
+        }
       });
 
       Animated.parallel(anims).start(() => {
@@ -501,24 +560,12 @@ const playCrunchSound = () => {
       }
     }, 320);
   };
-  
-  const spawnTestBomb = () => {
-    setBoard((prev) => {
-      const next = [...prev];
-      // Board ke beech me (center tile) bomb place karte hain
-      const centerIndex = Math.floor(next.length / 2);
-      next[centerIndex] = 'bomb';
-      boardRef.current = next;
-      return next;
-    });
-  };
 
   const executeColorBumperBlast = (bombIndex: number, targetColor: string, otherIndex: number) => {
     isAnimatingRef.current = true;
     setSpinningBombIndex(bombIndex);
     bombSpinAnim.setValue(0);
 
-    // 1. Gol-gol tezi se ghumne wala animation (3 full 360 rotations)
     Animated.timing(bombSpinAnim, {
       toValue: 1,
       duration: 292,
@@ -550,29 +597,17 @@ const playCrunchSound = () => {
       }
     });
 
-    // Bijli laser activate
     setLasers(generatedLasers);
 
-    // Blast hote hi saare rainbow colors bikharna
     setTimeout(() => {
-      const rainbowColors = ['#FF1744', '#00E5FF', '#FFD600', '#9B5DE5', '#00F5D4', '#FF4081', '#FFFFFF'];
-      matchedIndices.forEach((cIdx) => {
-        const cX = (cIdx % COLS) * tileSize + tileSize / 2;
-        const cY = Math.floor(cIdx / COLS) * tileSize + tileSize / 2;
-        rainbowColors.forEach((colorHex) => {
-          try { if (typeof triggerParticles === "function") try { if (typeof triggerParticles === "function") triggerParticles(cX, cY, colorHex); } catch(e){}; } catch(e){}
-        });
-      });
-      if (typeof triggerBoardBurst === "function" && brokenCrateList.length > 0) { triggerBoardBurst(brokenCrateList, true); }
-
+      triggerBoardBurst(matchedIndices, false);
       setLasers([]);
       setSpinningBombIndex(null);
       const remainingMoves = movesRef.current - 1;
       applyGravityAndFill(boardRef.current, matchedIndices, remainingMoves, []);
     }, 220);
   };
-
-  const getSwapTarget = (startIndex: number, direction: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
+    const getSwapTarget = (startIndex: number, direction: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
     if (gameOverRef.current || movesRef.current <= 0 || isAnimatingRef.current) return -1;
 
     const row = Math.floor(startIndex / COLS);
@@ -727,10 +762,10 @@ const playCrunchSound = () => {
           </View>
         </View>
 
-        {/* Map Body: Clean background with invisible clickable hotspots on the golden rings */}
+        {/* Map Body */}
         <ScrollView contentContainerStyle={{ height: MAP_H }} showsVerticalScrollIndicator={false} bounces={false}>
           <View style={{ width: MAP_W, height: MAP_H, position: 'relative' }}>
-            <Image fadeDuration={0}  source={currentMap.bg} style={{ width: MAP_W, height: MAP_H, position: 'absolute', top: 0, left: 0 }} resizeMode="stretch" />
+            <Image fadeDuration={0} source={currentMap.bg} style={{ width: MAP_W, height: MAP_H, position: 'absolute', top: 0, left: 0 }} resizeMode="stretch" />
             {currentMap.points.slice(0, 11).map((pt, idx) => {
               const spotSize = 42;
               const origLeft = pt.x * MAP_W - spotSize / 2;
@@ -742,17 +777,17 @@ const playCrunchSound = () => {
                   activeOpacity={0.8}
                   style={{ position: 'absolute', left: origLeft, top: origTop, width: spotSize, height: spotSize, justifyContent: 'center', alignItems: 'center', zIndex: 10 }}
                   onPress={() => {
-                    resetGame();
+                    resetGame(idx + 1);
                     setTimeout(() => {
-        soundManager.playBGM();
-      }, 500);
+                      soundManager.playBGM();
+                    }, 500);
                     setScreen('game');
                   }}
                 >
-                  <Image fadeDuration={0}  
-                    source={require('../assets/images/level_button_active.png')} 
-                    style={{ width: 34, height: 34 }} 
-                    resizeMode="contain" 
+                  <Image fadeDuration={0}
+                    source={require('../assets/images/level_button_active.png')}
+                    style={{ width: 34, height: 34 }}
+                    resizeMode="contain"
                   />
                   <Text style={{ position: 'absolute', color: '#FFF', fontWeight: '900', fontSize: 13, textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2, marginTop: -2 }}>
                     {idx + 1}
@@ -763,7 +798,7 @@ const playCrunchSound = () => {
           </View>
         </ScrollView>
 
-        {/* Bottom Nav with FREE badge */}
+        {/* Bottom Nav */}
         <View style={{ position: 'absolute', bottom: 12, left: 18, right: 18, height: 64, backgroundColor: 'rgba(25, 15, 35, 0.95)', borderRadius: 30, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.2)', zIndex: 9999 }}>
           <TouchableOpacity style={{ alignItems: 'center', justifyContent: 'center', flex: 1 }} onPress={() => setActiveModal('shop')}>
             <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: '#FF85A1', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF' }}>
@@ -804,13 +839,13 @@ const playCrunchSound = () => {
               </View>
               <View style={{ backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 12, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Pouch of Coins (+100)</Text>
-                <TouchableOpacity style={{ backgroundColor: '#FF3366', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} onPress={() => alert('🔒 Google Play Billing Locked: ₹49')}>
+                <TouchableOpacity style={{ backgroundColor: '#FF3366', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} onPress={() => alert('🔒 Locked')}>
                   <Text style={{ color: '#FFF', fontWeight: 'bold' }}>₹49</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Sack of Coins (+500)</Text>
-                <TouchableOpacity style={{ backgroundColor: '#06D6A0', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} onPress={() => alert('🔒 Google Play Billing Locked: ₹199')}>
+                <TouchableOpacity style={{ backgroundColor: '#06D6A0', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }} onPress={() => alert('🔒 Locked')}>
                   <Text style={{ color: '#000', fontWeight: 'bold' }}>₹199</Text>
                 </TouchableOpacity>
               </View>
@@ -836,8 +871,7 @@ const playCrunchSound = () => {
       </SafeAreaView>
     );
   }
-
-  return (
+    return (
     <SafeAreaView style={styles.gameContainer}>
       <View style={styles.kitchenHeader}>
         <View style={styles.topTableBar}>
@@ -857,14 +891,14 @@ const playCrunchSound = () => {
           </View>
 
           <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Return to home screen"
-          onPress={() => { soundManager.playPop(); setScreen("home"); }}
-          style={[styles.homeButton, { backgroundColor: "#FF3366", borderColor: "#FFF", borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 12, minWidth: 70, height: 38, borderRadius: 19 }]}
-        >
-          <Text style={{ color: "#FFF", fontSize: 16, fontWeight: "900", marginRight: 4 }}>◀</Text>
-          <Text style={{ color: "#FFF", fontSize: 13, fontWeight: "bold" }}>Back</Text>
-        </Pressable>
+            accessibilityRole="button"
+            accessibilityLabel="Return to home screen"
+            onPress={() => { soundManager.playPop(); setScreen("home"); }}
+            style={[styles.homeButton, { backgroundColor: "#FF3366", borderColor: "#FFF", borderWidth: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 12, minWidth: 70, height: 38, borderRadius: 19 }]}
+          >
+            <Text style={{ color: "#FFF", fontSize: 16, fontWeight: "900", marginRight: 4 }}>◀</Text>
+            <Text style={{ color: "#FFF", fontSize: 13, fontWeight: "bold" }}>Back</Text>
+          </Pressable>
         </View>
         <View style={styles.checkeredTrim}>
           {Array.from({ length: 22 }, (_, index) => (
@@ -883,74 +917,48 @@ const playCrunchSound = () => {
             onPointerUp={handlePointerUp}
             onTouchEnd={handlePointerUp}
           >
-            
-        {/* Master Burst Shatter Overlay */}
-        {burstDots.map(d => (
-          <View
-            key={d.id}
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: d.x,
-              top: d.y,
-              width: 10,
-              height: 10,
-              borderRadius: 3,
-              backgroundColor: d.c,
-              zIndex: 999999,
-              elevation: 50,
-              shadowColor: d.c,
-              shadowRadius: 6,
-              shadowOpacity: 0.9,
-            }}
-          />
-        ))}
+            {/* Real Flying Shards that Scatter and Drop (Tukde hokar bikharne wala effect) */}
+            {shards.map((s) => (
+              <View
+                key={s.id}
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: s.x,
+                  top: s.y,
+                  width: s.size,
+                  height: s.size * 0.7,
+                  borderRadius: 2,
+                  backgroundColor: s.c,
+                  transform: [{ rotate: `${s.rot}deg` }],
+                  zIndex: 999999,
+                  elevation: 99,
+                }}
+              />
+            ))}
 
-        
-        {/* Full Visible Shatter Burst Pieces */}
-        {burstDots.length > 0 && burstDots.map(d => (
-          <View
-            key={d.id}
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: d.x,
-              top: d.y,
-              width: d.size,
-              height: d.size,
-              borderRadius: d.size > 8 ? 3 : d.size / 2,
-              backgroundColor: d.c,
-              zIndex: 9999999,
-              elevation: 99,
-              borderWidth: 1.5,
-              borderColor: "#FFFFFF",
-            }}
-          />
-        ))}
+            {/* Burst Flash Dots */}
+            {burstDots.map((d) => (
+              <View
+                key={d.id}
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: d.x,
+                  top: d.y,
+                  width: d.size,
+                  height: d.size,
+                  borderRadius: d.size / 2,
+                  backgroundColor: d.c,
+                  zIndex: 9999999,
+                  elevation: 99,
+                  borderWidth: 1.5,
+                  borderColor: "#FFFFFF",
+                }}
+              />
+            ))}
 
-        
-        {/* Real Flying Shards that Scatter and Drop */}
-        {shards.map(s => (
-          <View
-            key={s.id}
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: s.x,
-              top: s.y,
-              width: s.size,
-              height: s.size * 0.7,
-              borderRadius: 2,
-              backgroundColor: s.c,
-              transform: [{ rotate: `${s.rot}deg` }],
-              zIndex: 999999,
-              elevation: 99,
-            }}
-          />
-        ))}
-
-        {board.map((item, index) => {
-        
+            {board.map((item, index) => {
               const col = index % COLS;
               const isMatchedNow = matchedIndicesState.includes(index);
 
@@ -978,10 +986,9 @@ const playCrunchSound = () => {
                         styles.candyClip,
                         { width: tileSize, height: tileSize },
                         isMatchedNow && {
-                    transform: [{ scale: 1.28 }],
-                    opacity: 0.25,
-                    
-                  },
+                          transform: [{ scale: 1.28 }],
+                          opacity: 0.25,
+                        },
                         {
                           transform: [
                             {
@@ -994,20 +1001,6 @@ const playCrunchSound = () => {
                         },
                       ]}
                     >
-                      {isMatchedNow ? (
-                        <View style={styles.particleContainer} pointerEvents="none">
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: -18 }, { translateY: -18 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: 18 }, { translateY: -18 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: -18 }, { translateY: 18 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: 18 }, { translateY: 18 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: 0 }, { translateY: -22 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: 0 }, { translateY: 22 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: -22 }, { translateY: 0 }] }]} />
-                          <View style={[styles.laserSparkle, { backgroundColor: CANDY_PARTICLE_COLORS[item] || '#FFF', transform: [{ translateX: 22 }, { translateY: 0 }] }]} />
-                          <View style={styles.burstCoreFlash} />
-                        </View>
-                      ) : null}
-
                       {item === 'bomb' ? (
                         <Animated.Image
                           source={CANDY_ASSETS.bomb}
@@ -1019,7 +1012,8 @@ const playCrunchSound = () => {
                           resizeMode="stretch"
                         />
                       ) : (
-                        <Image fadeDuration={0} 
+                        <Image
+                          fadeDuration={0}
                           source={CANDY_ASSETS[item as keyof typeof CANDY_ASSETS]}
                           style={[
                             candyImageSize(item),
@@ -1034,6 +1028,7 @@ const playCrunchSound = () => {
               );
             })}
 
+            {/* Laser beams for Color Bomb */}
             {lasers.map((l) => {
               const dx = l.toX - l.fromX;
               const dy = l.toY - l.fromY;
@@ -1085,7 +1080,8 @@ const playCrunchSound = () => {
                       resizeMode="stretch"
                     />
                   ) : (
-                    <Image fadeDuration={0} 
+                    <Image
+                      fadeDuration={0}
                       source={CANDY_ASSETS[board[draggedIndex] as keyof typeof CANDY_ASSETS]}
                       style={candyImageSize(board[draggedIndex])}
                       resizeMode="stretch"
@@ -1121,7 +1117,8 @@ const playCrunchSound = () => {
                       resizeMode="stretch"
                     />
                   ) : (
-                    <Image fadeDuration={0} 
+                    <Image
+                      fadeDuration={0}
                       source={CANDY_ASSETS[board[swapTargetIndex] as keyof typeof CANDY_ASSETS]}
                       style={candyImageSize(board[swapTargetIndex])}
                       resizeMode="stretch"
@@ -1132,23 +1129,23 @@ const playCrunchSound = () => {
             ) : null}
           </View>
         </View>
-        
-      {/* Electric Lightning Screen Flash */}
-      {electricBombActive && (
-        <View pointerEvents="none" style={{
-          position: "absolute",
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: "rgba(0, 229, 255, 0.45)",
-          borderWidth: 6,
-          borderColor: "#FFF700",
-          zIndex: 99999,
-          justifyContent: "center",
-          alignItems: "center"
-        }}>
-          <Text style={{ fontSize: 48 }}>⚡⚡⚡</Text>
-          <Text style={{ color: "#FFF", fontSize: 22, fontWeight: "900", textShadowColor: "#000", textShadowRadius: 6 }}>ELECTRIC COLOR BLAST!</Text>
-        </View>
-      )}
+
+        {/* Electric Lightning Screen Flash */}
+        {electricBombActive && (
+          <View pointerEvents="none" style={{
+            position: "absolute",
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: "rgba(0, 229, 255, 0.45)",
+            borderWidth: 6,
+            borderColor: "#FFF700",
+            zIndex: 99999,
+            justifyContent: "center",
+            alignItems: "center"
+          }}>
+            <Text style={{ fontSize: 48 }}>⚡⚡⚡</Text>
+            <Text style={{ color: "#FFF", fontSize: 22, fontWeight: "900", textShadowColor: "#000", textShadowRadius: 6 }}>ELECTRIC COLOR BLAST!</Text>
+          </View>
+        )}
 
         {/* Bottom Booster / Power-up Bar */}
         <View style={{
@@ -1167,7 +1164,7 @@ const playCrunchSound = () => {
           borderColor: "#FFD700",
           alignSelf: "center",
         }}>
-          {/* Booster 1: Haath ka panja */}
+          {/* Booster 1: Hand */}
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => {
@@ -1304,22 +1301,7 @@ const playCrunchSound = () => {
 }
 
 const styles = StyleSheet.create({
-  cellBurst: {
-    transform: [{ scale: 1.18 }],
-    opacity: 0.85,
-  },
-  homeContainer: { flex: 1 },
-  homeBackground: { flex: 1, width: '100%', height: '100%' },
-  homeShade: { flex: 1, backgroundColor: 'rgba(0,0,0,0.15)', justifyContent: 'center', alignItems: 'center' },
-  soundButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
-  soundButtonText: { fontSize: 28 },
-  homeContent: { alignItems: 'center' },
-  homeLogo: { width: 260, height: 130, marginBottom: 10 },
-  homeTagline: { fontSize: 16, fontWeight: '800', color: '#FFF', letterSpacing: 2, marginBottom: 30 },
-  playButton: { backgroundColor: '#4CAF50', paddingHorizontal: 40, paddingVertical: 14, borderRadius: 30 },
-  playButtonPressed: { opacity: 0.8 },
-  playButtonText: { fontSize: 24, fontWeight: '900', color: '#FFF' },
-
+  cellBurst: { transform: [{ scale: 1.18 }], opacity: 0.85 },
   gameContainer: { flex: 1, backgroundColor: '#FEDCB4' },
   kitchenHeader: { width: '100%', backgroundColor: '#FFA07A' },
   topTableBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10 },
@@ -1333,7 +1315,6 @@ const styles = StyleSheet.create({
   numberBadge: { minWidth: 20, alignItems: 'center' },
   targetBadgeText: { fontSize: 16, fontWeight: '900', color: '#333' },
   homeButton: { padding: 6 },
-  homeButtonText: { fontSize: 26, color: '#FFF' },
   checkeredTrim: { flexDirection: 'row', height: 10, width: '100%' },
   trimSquare: { flex: 1, backgroundColor: '#FFF' },
   trimSquarePink: { backgroundColor: '#FF80AB' },
@@ -1362,101 +1343,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(35, 58, 87, 0.35)',
   },
   candyClip: { justifyContent: 'center', alignItems: 'center' },
-  burstCandy: {
-    transform: [{ scale: 1.25 }],
-    opacity: 0.3,
-  },
-  particleContainer: {
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 999,
-  },
-  laserSparkle: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    shadowColor: '#FFFFFF',
-    shadowOpacity: 1,
-    shadowRadius: 1,
-    elevation: 2,
-  },
-  burstCoreFlash: {
-    position: 'absolute',
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-  },
   hiddenCandy: { opacity: 0 },
-  draggedCandy: { position: 'absolute', zIndex: 100, elevation: 2, },
-  swappingCandy: { zIndex: 90, elevation: 2, },
+  draggedCandy: { position: 'absolute', zIndex: 100, elevation: 2 },
+  swappingCandy: { zIndex: 90, elevation: 2 },
   crateTile: { width: '90%', height: '90%', backgroundColor: '#A1887F', borderRadius: 6, borderWidth: 2, borderColor: '#6D4C41' },
   crateInset: { flex: 1, margin: 2, borderWidth: 1, borderColor: '#4E342E' },
   crateHorizontal: { position: 'absolute', width: '100%', height: 2, backgroundColor: '#4E342E', top: '48%' },
   crateVertical: { position: 'absolute', height: '100%', width: 2, backgroundColor: '#4E342E', left: '48%' },
 
-  laserBeamZigzag1: {
-    position: 'absolute',
-    top: -2,
-    height: 4,
-    width: '100%',
-    backgroundColor: '#00FFFF',
-    opacity: 0.8,
-    borderRadius: 2,
-    transform: [{ skewY: '12deg' }],
-  },
-  laserBeamZigzag2: {
-    position: 'absolute',
-    bottom: -2,
-    height: 3,
-    width: '100%',
-    backgroundColor: '#7DF9FF',
-    opacity: 0.8,
-    borderRadius: 2,
-    transform: [{ skewY: '-12deg' }],
-  },
-  laserSparks: {
-    position: 'absolute',
-    width: '100%',
-    height: 10,
-    backgroundColor: 'transparent',
-    borderColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    opacity: 0.9,
-  },
-  testBombBtn: {
-    position: 'absolute',
-    top: 55,
-    right: 15,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 9999,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 1,
-    borderWidth: 1.5,
-    borderColor: '#FFD700',
-  },
-  testBombBtnImg: {
-    width: 26,
-    height: 26,
-    marginRight: 4,
-  },
-  testBombBtnText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#333',
-  },
   laserBeamContainer: {
     position: 'absolute',
     height: 12,
@@ -1469,11 +1363,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     height: 3,
     backgroundColor: '#FFFFFF',
-    shadowColor: '#00FFFF',
-    shadowRadius: 1,
-    shadowOpacity: 1,
     width: '100%',
-    backgroundColor: '#FFFFFF',
     borderRadius: 2,
     zIndex: 2,
   },
@@ -1483,9 +1373,6 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: 'rgba(0, 229, 255, 0.75)',
     borderRadius: 6,
-    shadowColor: '#00E5FF',
-    shadowOpacity: 1,
-    shadowRadius: 1,
     elevation: 2,
   },
 
@@ -1493,7 +1380,13 @@ const styles = StyleSheet.create({
   bottomBar: { paddingVertical: 14, alignItems: 'center', backgroundColor: '#FFE0B2' },
   bottomBarText: { fontSize: 12, fontWeight: '700', color: '#6D4C41' },
 
-  resultOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 200 },
+    resultOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 200,
+  },
   resultCard: { width: '80%', backgroundColor: '#FFF', borderRadius: 20, padding: 24, alignItems: 'center' },
   resultTitle: { fontSize: 24, fontWeight: '900', color: '#E91E63', marginBottom: 8 },
   resultMessage: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20 },

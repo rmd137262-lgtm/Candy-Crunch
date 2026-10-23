@@ -34,11 +34,11 @@ args = "Start application"
 
 [[workflows.workflow]]
 name = "Start application"
+mode = "parallel"
 author = "agent"
-mode = "sequential"
 
 [[workflows.workflow.tasks]]
-task = "packager.installForLanguage"
+task = "shell.exec"
 args = ""
 
 [workflows.workflow.metadata]
